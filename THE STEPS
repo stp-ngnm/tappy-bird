@@ -1,0 +1,30 @@
+1-buy an android or desktop-
+budget devices are what this is about
+there are 0 hardwear requirments other than that you have some to work with
+
+2-next youll want to open or install a terminal emulator and set it up
+Debian option)
+i start with fire wall and vpn and a password manager
+sudo apt install ufw
+sudo ufw enable
+sudo ufw default allow out going 
+sudo ufw default deny incoming
+
+these next 2 should make app icons
+sudo apt install keepassxc
+sudo apt install riseup-vpn
+------
+Termux option)
+you could use google play if you dont personaly give a shit about trackers and data privacy
+or you could do what i do and install f-droid for aurora and termux as shown in the face page
+ways to avoid trackers geting the f-droid apk 
+firefox, duckduckgo or tor + extensions ublock & privacy badger 
+
+3-make a kraken account-
+once this is done youll have to... first get comfortable; make the api; or add cradentcials to attain funding, before starting the machine in terminal
+
+4-set up the nano file-
+as shown in the step2 dash file
+
+5-allocate $20+ to the machine by leaving it in the kraken account-
+let it run for a day keep make sure to keep an eye on it
