@@ -1,0 +1,800 @@
+
+# Depth-aware trading bot: uses orderbook snapshots to estimate execution price/slippage
+# Before placing auto market orders. Buys at tracked average lows and sells at tracked
+# Average highs, granted the orderbook depth indicates acceptable slippage/liquidity.
+# And all other prerquiseted qualifications are met Slippage, Min profit...zoning laws...
+
+import numpy as np
+import requests
+import time
+import threading
+import logging
+from queue import Queue
+
+# ======== ANSI COLOR CODES ========
+COLOR_GREEN = "\033[92m"
+COLOR_YELLOW = "\033[93m"
+COLOR_RED = "\033[91m"
+COLOR_CYAN = "\033[96m"
+COLOR_BLUE = "\033[94m"
+COLOR_MAGENTA = "\033[95m"
+COLOR_RESET = "\033[0m"
+# ==================================
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
+DEBUG = True
+
+# ======== KRAKEN API CREDENTIALS ========
+# the tool used to make kraken api keys is in the settings on the krakenpro >website< >website only< 
+# keep keys in quotes "xxxxxxx"
+
+API_KEY = "YOUR_API_KEY_HERE"
+
+API_SECRET = "YOUR_API_SECRET_HERE"
+
+# ========================================
+
+# ======== TRADING CONFIG ========
+TRADING_PAIR = "XXXXUSD"         # change by entering crypto-base curency (like this "AAABBB")
+KRAKEN_PAIR = TRADING_PAIR
+INVESTMENT_AMOUNT = 20.00       # enter any amount limmited by kraken
+FEE_RATE = 0.0026               # 0.26% dont change this its a dummy switch
+BOND_DECIMALS = 8               # the number of decimals below 0 its capable of detecting
+MIN_PROFIT = 0.25               # configure to compare with the allocated investment amount
+STOP_LOSS_PCT = 0.018           # 1.8% stop-loss 
+# =================================
+
+# ======= AVG-ENTRY TUNING =======
+BUY_AT_LOWEST_AVERAGE = True
+SELL_AT_HIGHEST_AVERAGE = True
+ENTRY_RANGE_PCT = 0.0015          # ±0.15% acceptance around averages
+# =================================
+
+# ======= DEPTH / SLIPPAGE CONFIG =======
+MAX_SLIPPAGE_PCT = 0.01        # maximum acceptable slippage (1% default)
+MIN_LIQUIDITY_RATIO = 0.6      # minimum fraction 0.6 >not sure what this one is<
+ORDERBOOK_DEPTH_LEVELS = 50    # number of price levels to fetch from Kraken depth
+# =================================
+
+API_URL = "https://api.kraken.com"
+API_VERSION = "0"
+
+# ======== ZONE CONFIGURATION ========
+# adapt this to the price of the coin in trade
+# 
+ZONE_BUFFER = 1.2            # $ 1.2 no act zone
+SELL_ZONE_EXTRA = 33.33      # $ 33.33 detect/sell zone above buffer
+BUY_ZONE_EXTRA = 33.33       # $ 33.33 detect/buy zone below buffer
+PRICE_CHECK_INTERVAL = 15    # calls api every 15 seconds -->keep bellow 60<--
+ZONE_RESET_HOLD_TIME = 20    # price tick leaving zones longer than 20sec machine recalculates zones 
+MEDIAN_LOOKBACK = 360        # 300 is equivilant to 5 hours of every 1 min tick
+# =====================================
+
+# Trading state
+active_position = False
+entry_price = 0.0
+token_amount = 0.0
+position_investment = 0.0
+outside_zone_since = None
+
+manual_trigger_queue = Queue()
+
+
+# ----------------- API / Utilities -----------------
+def get_valid_kraken_pair(pair):
+    variations = [
+        pair,
+        f"X{pair}",
+        f"{pair}Z",
+        f"X{pair}Z",
+        pair.replace("USD", "ZUSD"),
+        f"X{pair.replace('USD', '')}ZUSD"
+    ]
+    for variation in variations:
+        try:
+            response = requests.get(f'{API_URL}/{API_VERSION}/public/Ticker?pair={variation}', timeout=5)
+            data = response.json()
+            if 'error' not in data or not data['error']:
+                if DEBUG:
+                    print(f"{COLOR_GREEN}Using pair format: {variation}{COLOR_RESET}")
+                return variation
+        except Exception as e:
+            logging.warning(f"Pair validation error: {str(e)}")
+            continue
+    print(f"{COLOR_RED}Could not validate pair format, using {pair}{COLOR_RESET}")
+    return pair
+
+
+def get_ohlc(pair, interval, lookback):
+    since = int((time.time() - lookback * interval * 60) // 1)
+    params = {'pair': pair, 'interval': interval, 'since': since}
+    try:
+        response = requests.get(f"{API_URL}/{API_VERSION}/public/OHLC", params=params, timeout=10)
+        data = response.json()
+        if 'error' in data and data['error']:
+            logging.error(f"Kraken OHLC error: {data['error']}")
+            return []
+        pair_key = list(data['result'].keys())[0]
+        ohlc_data = data['result'][pair_key]
+        results = []
+        for row in ohlc_data:
+            try:
+                results.append({
+                    'timestamp': float(row[0]),
+                    'open': float(row[1]),
+                    'high': float(row[2]),
+                    'low': float(row[3]),
+                    'close': float(row[4])
+                })
+            except Exception as e:
+                logging.warning(f"OHLC row parsing error: {str(e)}")
+        return results
+    except Exception as e:
+        logging.error(f"OHLC Error: {str(e)}")
+        return []
+
+
+def get_ticker():
+    try:
+        response = requests.get(f'{API_URL}/{API_VERSION}/public/Ticker?pair={KRAKEN_PAIR}', timeout=5)
+        data = response.json()
+        if 'error' in data and data['error']:
+            logging.error(f"Ticker error: {data['error']}")
+            return None
+        valid_pair = list(data['result'].keys())[0]
+        ticker = data['result'][valid_pair]
+        last_price = float(ticker['c'][0])
+        return last_price
+    except Exception as e:
+        logging.error(f"Ticker Error: {str(e)}")
+        return None
+
+
+def get_order_book(pair, count=ORDERBOOK_DEPTH_LEVELS):
+    """
+    Fetch order book (depth) from Kraken public API.
+    Returns dict with 'bids' and 'asks', each a list of (price: float, volume: float).
+    """
+    try:
+        resp = requests.get(f"{API_URL}/{API_VERSION}/public/Depth", params={'pair': pair, 'count': count}, timeout=10)
+        data = resp.json()
+        if 'error' in data and data['error']:
+            logging.error(f"Depth error: {data['error']}")
+            return None
+        pair_key = list(data['result'].keys())[0]
+        ob = data['result'][pair_key]
+        # bids are [price, volume, timestamp] - bids sorted highest->lowest
+        bids = [(float(p), float(v)) for p, v, *_ in ob.get('bids', [])]
+        # asks are [price, volume, timestamp] - asks sorted lowest->highest
+        asks = [(float(p), float(v)) for p, v, *_ in ob.get('asks', [])]
+        return {'bids': bids, 'asks': asks}
+    except Exception as e:
+        logging.error(f"Order book fetch error: {str(e)}")
+        return None
+
+
+def simulate_market_fill(side, base_amount, order_book):
+    """
+    Simulate executing a market order consuming the order_book.
+
+    side: 'buy' (we consume asks) or 'sell' (we consume bids)
+    base_amount: amount of base asset to buy/sell
+    order_book: dict from get_order_book()
+
+    Returns:
+      (filled: bool, executed_price_avg: float, used_quote_volume: float, consumed_levels)
+    - filled: False if cumulative available base volume < base_amount
+    - executed_price_avg: weighted average price expected if filled
+    - used_quote_volume: total quote currency spent (for buy) or received (for sell)
+    - consumed_levels: number of depth levels consumed (for logging)
+    """
+    if order_book is None:
+        return False, None, None, 0
+
+    levels = order_book['asks'] if side == 'buy' else order_book['bids']
+    cum_base = 0.0
+    used_quote = 0.0
+    consumed = 0
+    for price, available in levels:
+        take = min(available, base_amount - cum_base)
+        used_quote += take * price
+        cum_base += take
+        consumed += 1
+        if cum_base >= base_amount - 1e-12:
+            break
+    if cum_base + 1e-12 < base_amount:
+        return False, None, None, consumed
+    executed_avg = used_quote / base_amount
+    return True, executed_avg, used_quote, consumed
+
+
+def estimate_slippage_and_liquidity(side, price_ref, base_amount):
+    """
+    Fetch order book and estimate:
+      - whether the orderbook can fill base_amount within fetched depth
+      - weighted avg execution price
+      - slippage_pct relative to price_ref (price_ref should be current ticker or tracked reference)
+
+    Returns dict with keys:
+      'filled' (bool), 'exec_price' (float), 'slippage_pct' (float), 'levels_consumed' (int), 'available_base' (float)
+    """
+    ob = get_order_book(KRAKEN_PAIR, count=ORDERBOOK_DEPTH_LEVELS)
+    if ob is None:
+        return {'filled': False, 'reason': 'no_orderbook'}
+
+    side_name = 'buy' if side == 'buy' else 'sell'
+    filled, exec_price, used_quote, consumed = simulate_market_fill(side_name, base_amount, ob)
+    available_base = sum([v for _, v in (ob['asks'] if side == 'buy' else ob['bids'])])
+    if not filled:
+        return {'filled': False, 'reason': 'insufficient_depth', 'available_base': available_base}
+
+    # slippage vs reference price
+    if price_ref is None or price_ref == 0:
+        slippage = 0.0
+    else:
+        slippage = (exec_price - price_ref) / price_ref if side == 'buy' else (price_ref - exec_price) / price_ref
+
+    return {
+        'filled': True,
+        'exec_price': float(exec_price),
+        'slippage_pct': float(slippage),
+        'levels_consumed': consumed,
+        'available_base': available_base
+    }
+
+
+def kraken_request(uri_path, data):
+    import hashlib, hmac, base64, urllib.parse
+    headers = {}
+    headers['API-Key'] = API_KEY
+    nonce = str(int(time.time() * 1000))
+    data['nonce'] = nonce
+    postdata = urllib.parse.urlencode(data)
+    encoded = (nonce + postdata).encode()
+    message = uri_path.encode() + hashlib.sha256(encoded).digest()
+    api_secret = API_SECRET
+    if len(api_secret) % 4 != 0:
+        api_secret += '=' * (4 - len(api_secret) % 4)
+    try:
+        secret = base64.b64decode(api_secret)
+        mac = hmac.new(secret, message, hashlib.sha512)
+        headers['API-Sign'] = base64.b64encode(mac.digest()).decode()
+        response = requests.post(API_URL + uri_path, data=data, headers=headers, timeout=10)
+        try:
+            return response.json()
+        except Exception:
+            return {'error': [f'Non-JSON response: {response.text}']}
+    except Exception as e:
+        logging.error(f"API Error: {str(e)}")
+        return {'error': [str(e)]}
+
+
+def place_order(order_type, amount, price):
+    amount = round(amount, BOND_DECIMALS)
+    data = {
+        'ordertype': 'market',
+        'type': order_type,
+        'volume': amount,
+        'pair': KRAKEN_PAIR,
+        'validate': 'false'
+    }
+    print(f"{COLOR_YELLOW}Placing {order_type} order for {amount} at ${price:.4f}{COLOR_RESET}")
+    try:
+        result = kraken_request(f'/{API_VERSION}/private/AddOrder', data)
+        logging.info(f"Order result: {result}")
+        if 'error' in result and result['error']:
+            logging.error(f"Order error details: {result['error']}")
+        return result
+    except Exception as e:
+        logging.error(f"Order placement exception: {str(e)}")
+        return {'error': [str(e)]}
+
+
+def calculate_precise_profit(entry, exit, amount):
+    if entry is None or exit is None or amount is None:
+        logging.warning("Profit calculation with None value.")
+        return None
+    buy_fee = amount * entry * FEE_RATE
+    effective_buy = amount * (1 - FEE_RATE)
+    net_proceeds = effective_buy * exit * (1 - FEE_RATE)
+    return net_proceeds - (amount * entry - buy_fee)
+
+
+def dynamic_position_size(price):
+    if price is None or price <= 0:
+        logging.warning("Dynamic position size received invalid price.")
+        return 0.0
+    return INVESTMENT_AMOUNT / price
+
+
+# ---- Added missing get_trend function ----
+def get_trend(ohlc_data, window=10):
+    """
+    Simple trend detector: compare last close to mean of previous `window` closes.
+    Returns 'up' or 'down' or None if insufficient data.
+    """
+    try:
+        closes = [row['close'] for row in ohlc_data[-window:] if row.get('close') is not None]
+    except Exception:
+        return None
+    if len(closes) < window:
+        return None
+    return 'up' if closes[-1] > np.mean(closes) else 'down'
+# ---- end get_trend ----
+
+
+def config_monitor():
+    global INVESTMENT_AMOUNT, TRADING_PAIR, KRAKEN_PAIR
+    print(f"\n{COLOR_MAGENTA}Configuration Active!{COLOR_RESET}")
+    print(f"{COLOR_MAGENTA}Commands: 'b'=buy now, 's'=sell now, 'i'=investment, 't'=trading pair, 'c'=show config, 'q'=quit{COLOR_RESET}")
+    while True:
+        try:
+            cmd = input(f"{COLOR_MAGENTA}Config> {COLOR_RESET}").strip().lower()
+            if cmd == 'q':
+                print(f"{COLOR_MAGENTA}Exiting config monitor{COLOR_RESET}")
+                break
+            elif cmd == 'b':
+                manual_trigger_queue.put("BUY")
+                print(f"{COLOR_GREEN}Manual BUY trigger set!{COLOR_RESET}")
+            elif cmd == 's':
+                manual_trigger_queue.put("SELL")
+                print(f"{COLOR_GREEN}Manual SELL trigger set!{COLOR_RESET}")
+            elif cmd == 'i':
+                try:
+                    new_investment = float(input("Enter new investment amount ($): "))
+                    if new_investment >= 1:
+                        INVESTMENT_AMOUNT = new_investment
+                        print(f"{COLOR_GREEN}Investment amount updated to ${new_investment:.2f}{COLOR_RESET}")
+                except ValueError:
+                    print(f"{COLOR_RED}Invalid input{COLOR_RESET}")
+            elif cmd == 't':
+                new_pair = input("Enter new trading pair (e.g., LTCUSD): ").strip().upper()
+                if new_pair:
+                    TRADING_PAIR = new_pair
+                    KRAKEN_PAIR = get_valid_kraken_pair(new_pair)
+                    print(f"{COLOR_GREEN}Trading pair updated to {TRADING_PAIR}{COLOR_RESET}")
+                    print(f"{COLOR_GREEN}Kraken pair format: {KRAKEN_PAIR}{COLOR_RESET}")
+                else:
+                    print(f"{COLOR_RED}Invalid input{COLOR_RESET}")
+            elif cmd == 'c':
+                print(f"\n{COLOR_MAGENTA}Current Configuration:{COLOR_RESET}")
+                print(f"Investment Amount: ${INVESTMENT_AMOUNT:.2f}")
+                print(f"Trading Pair: {TRADING_PAIR}")
+                print(f"Kraken Format: {KRAKEN_PAIR}")
+                print(f"Fee Rate: {FEE_RATE*100:.4f}%")
+                print(f"ENTRY_RANGE_PCT: {ENTRY_RANGE_PCT*100:.2f}%")
+                print(f"MAX_SLIPPAGE_PCT: {MAX_SLIPPAGE_PCT*100:.2f}%")
+                print(f"MIN_LIQUIDITY_RATIO: {MIN_LIQUIDITY_RATIO*100:.2f}%")
+            else:
+                print(f"{COLOR_YELLOW}Unknown command{COLOR_RESET}")
+        except Exception as e:
+            logging.error(f"Config Error: {str(e)}")
+            print(f"{COLOR_RED}Config Error: {str(e)}{COLOR_RESET}")
+
+
+# ========== Zone Machine (avg-entry with symmetric range) ==========
+class BestValueZoneMachine4Dec:
+    def __init__(self, pair):
+        self.pair = pair
+        self.zone_initialized = False
+        self.buy_zone = None
+        self.neutral_zone = None
+        self.sell_zone = None
+        self.median = None
+        self.zone_set_time = None
+
+        # SELL zone tracking
+        self.in_sell_zone = False
+        self.sell_highs = []
+        self.sell_lows = []
+        self.best_sell_price = None
+        self.max_avg_high_seen = None
+
+        # BUY zone tracking
+        self.in_buy_zone = False
+        self.buy_highs = []
+        self.buy_lows = []
+        self.best_buy_price = None
+        self.min_avg_low_seen = None
+
+    def initialize_zones(self, use_bollinger=False):
+        print(f"{COLOR_CYAN}Calculating Zones...{COLOR_RESET}")
+        ohlc_data = get_ohlc(self.pair, interval=1, lookback=MEDIAN_LOOKBACK)
+        if not ohlc_data or len(ohlc_data) < 10:
+            print(f"{COLOR_RED}Insufficient OHLC data for zone calculation!{COLOR_RESET}")
+            return False
+
+        if use_bollinger:
+            closes = np.array([row['close'] for row in ohlc_data[-20:] if row.get('close') is not None])
+            if len(closes) < 20:
+                print(f"{COLOR_RED}Insufficient data for Bollinger zones!{COLOR_RESET}")
+                return False
+            sma = np.mean(closes)
+            std = np.std(closes)
+            upper = sma + 2 * std
+            lower = sma - 2 * std
+            self.median = float(np.mean([lower, upper]))
+            neutral_lower = round(self.median - ZONE_BUFFER / 2, 4)
+            neutral_upper = round(self.median + ZONE_BUFFER / 2, 4)
+            self.neutral_zone = (neutral_lower, neutral_upper)
+            self.buy_zone = (round(lower, 4), neutral_lower)
+            self.sell_zone = (neutral_upper, round(upper, 4))
+        else:
+            highs = np.array([x['high'] for x in ohlc_data])
+            lows = np.array([x['low'] for x in ohlc_data])
+            self.median = float((np.median(highs) + np.median(lows)) / 2)
+            neutral_lower = round(self.median - ZONE_BUFFER / 2, 4)
+            neutral_upper = round(self.median + ZONE_BUFFER / 2, 4)
+            self.neutral_zone = (neutral_lower, neutral_upper)
+            self.buy_zone = (round(neutral_lower - BUY_ZONE_EXTRA, 4), neutral_lower)
+            self.sell_zone = (neutral_upper, round(neutral_upper + SELL_ZONE_EXTRA, 4))
+
+        self.zone_initialized = True
+        self.zone_set_time = time.time()
+        # reset trackers & averages
+        self.sell_highs = []
+        self.sell_lows = []
+        self.buy_highs = []
+        self.buy_lows = []
+        self.in_sell_zone = False
+        self.in_buy_zone = False
+        self.best_sell_price = None
+        self.best_buy_price = None
+        self.max_avg_high_seen = None
+        self.min_avg_low_seen = None
+
+        print(f"{COLOR_MAGENTA}=== ZONES INITIALIZED ==={COLOR_RESET}")
+        print(f"Median:      ${self.median:.4f}")
+        print(f"Buy Zone:    [${self.buy_zone[0]:.4f} - ${self.buy_zone[1]:.4f}]")
+        print(f"Neutral Zone:[${self.neutral_zone[0]:.4f} - ${self.neutral_zone[1]:.4f}]")
+        print(f"Sell Zone:   [${self.sell_zone[0]:.4f} - ${self.sell_zone[1]:.4f}]")
+        print(f"{COLOR_MAGENTA}========================={COLOR_RESET}")
+
+    def price_zone(self, price):
+        if price is None:
+            return "INVALID"
+        if self.buy_zone and self.buy_zone[0] <= price < self.buy_zone[1]:
+            return "BUY"
+        elif self.neutral_zone and self.neutral_zone[0] <= price <= self.neutral_zone[1]:
+            return "NEUTRAL"
+        elif self.sell_zone and self.sell_zone[0] < price <= self.sell_zone[1]:
+            return "SELL"
+        else:
+            return "OUTSIDE"
+
+    def zones_expired(self, price):
+        global outside_zone_since
+        zone_status = self.price_zone(price)
+        now = time.time()
+        if zone_status == "OUTSIDE":
+            if outside_zone_since is None:
+                outside_zone_since = now
+            elif now - outside_zone_since > ZONE_RESET_HOLD_TIME:
+                print(f"{COLOR_YELLOW}Price outside all zones for >{ZONE_RESET_HOLD_TIME} seconds. Resetting zones...{COLOR_RESET}")
+                outside_zone_since = None
+                return True
+        else:
+            outside_zone_since = None
+        return False
+
+    # SELL tracking (same as previous avg-entry, returns reference sell price when condition met)
+    def track_best_sell(self, price, entry_price, token_amount):
+        if price is None:
+            return None
+
+        zone = self.price_zone(price)
+
+        if zone == "SELL":
+            self.sell_highs.append(price)
+            self.sell_lows.append(price)
+            if not self.in_sell_zone:
+                self.in_sell_zone = True
+                self.best_sell_price = price
+                self.max_avg_high_seen = np.mean(self.sell_highs) if self.sell_highs else price
+                if DEBUG:
+                    print(f"{COLOR_BLUE}Entered SELL zone. Tracking highs. initial avg_high={self.max_avg_high_seen:.4f}{COLOR_RESET}")
+            else:
+                if price > self.best_sell_price:
+                    self.best_sell_price = price
+                avg_high = np.mean(self.sell_highs) if self.sell_highs else self.best_sell_price
+                if self.max_avg_high_seen is None or avg_high > self.max_avg_high_seen:
+                    self.max_avg_high_seen = avg_high
+                    if DEBUG:
+                        print(f"{COLOR_BLUE}New max_avg_high_seen: ${self.max_avg_high_seen:.4f}{COLOR_RESET}")
+
+            if SELL_AT_HIGHEST_AVERAGE and self.max_avg_high_seen is not None:
+                lower_thr = self.max_avg_high_seen * (1.0 - ENTRY_RANGE_PCT)
+                upper_thr = self.max_avg_high_seen * (1.0 + ENTRY_RANGE_PCT)
+                if lower_thr <= price <= upper_thr:
+                    if DEBUG:
+                        print(f"{COLOR_GREEN}SELL range condition met: price ${price:.4f} in [{lower_thr:.4f}, {upper_thr:.4f}]. Signaling sell at ref ${self.max_avg_high_seen:.4f}{COLOR_RESET}")
+                    return float(self.max_avg_high_seen)
+            return None
+
+        else:
+            if self.in_sell_zone:
+                avg_high = np.mean(self.sell_highs) if self.sell_highs else None
+                avg_low = np.mean(self.sell_lows) if self.sell_lows else None
+                best_profit = calculate_precise_profit(entry_price, self.best_sell_price, token_amount)
+                if DEBUG:
+                    print(f"{COLOR_GREEN}Exited SELL zone. Best SELL price: ${self.best_sell_price:.4f}, Avg High: {avg_high:.4f}, Avg Low: {avg_low:.4f}, Best Profit: ${best_profit:.4f}{COLOR_RESET}")
+                self.in_sell_zone = False
+                self.sell_highs = []
+                self.sell_lows = []
+                tmp = self.max_avg_high_seen
+                self.max_avg_high_seen = None
+                if best_profit is not None and best_profit >= MIN_PROFIT:
+                    return float(self.best_sell_price)
+                else:
+                    if DEBUG:
+                        print(f"{COLOR_YELLOW}Exit-based sell condition not met (profit {best_profit}).{COLOR_RESET}")
+            return None
+
+    # BUY tracking (returns reference buy price when condition met)
+    def track_best_buy(self, price):
+        if price is None:
+            return None
+
+        zone = self.price_zone(price)
+
+        if zone == "BUY":
+            self.buy_highs.append(price)
+            self.buy_lows.append(price)
+            if not self.in_buy_zone:
+                self.in_buy_zone = True
+                self.best_buy_price = price
+                self.min_avg_low_seen = np.mean(self.buy_lows) if self.buy_lows else price
+                if DEBUG:
+                    print(f"{COLOR_BLUE}Entered BUY zone. Tracking lows. initial avg_low={self.min_avg_low_seen:.4f}{COLOR_RESET}")
+            else:
+                if price < self.best_buy_price:
+                    self.best_buy_price = price
+                avg_low = np.mean(self.buy_lows) if self.buy_lows else self.best_buy_price
+                if self.min_avg_low_seen is None or avg_low < self.min_avg_low_seen:
+                    self.min_avg_low_seen = avg_low
+                    if DEBUG:
+                        print(f"{COLOR_BLUE}New min_avg_low_seen: ${self.min_avg_low_seen:.4f}{COLOR_RESET}")
+
+            if BUY_AT_LOWEST_AVERAGE and self.min_avg_low_seen is not None:
+                lower_thr = self.min_avg_low_seen * (1.0 - ENTRY_RANGE_PCT)
+                upper_thr = self.min_avg_low_seen * (1.0 + ENTRY_RANGE_PCT)
+                if lower_thr <= price <= upper_thr:
+                    if DEBUG:
+                        print(f"{COLOR_GREEN}BUY range condition met: price ${price:.4f} in [{lower_thr:.4f}, {upper_thr:.4f}]. Signaling buy at ref ${self.min_avg_low_seen:.4f}{COLOR_RESET}")
+                    return float(self.min_avg_low_seen)
+            return None
+
+        else:
+            if self.in_buy_zone:
+                avg_high = np.mean(self.buy_highs) if self.buy_highs else None
+                avg_low = np.mean(self.buy_lows) if self.buy_lows else None
+                if DEBUG:
+                    print(f"{COLOR_GREEN}Exited BUY zone. Tracked best low: ${self.best_buy_price:.4f}, Avg High: {avg_high:.4f}, Avg Low: {avg_low:.4f}{COLOR_RESET}")
+                self.in_buy_zone = False
+                self.buy_highs = []
+                self.buy_lows = []
+                tmp = self.min_avg_low_seen
+                self.min_avg_low_seen = None
+                buy_zone_mid = np.mean(self.buy_zone)
+                if tmp is not None and tmp < buy_zone_mid:
+                    if DEBUG:
+                        print(f"{COLOR_GREEN}Exit-based buy condition met. Signaling buy at ${tmp:.4f}{COLOR_RESET}")
+                    return float(tmp)
+                else:
+                    if DEBUG:
+                        print(f"{COLOR_YELLOW}Exit-based buy condition NOT met. Holding.{COLOR_RESET}")
+            return None
+
+
+# ====== Startup ======
+print(f"{COLOR_CYAN}Starting Depth-Aware Trading Bot (avg-entry ±{ENTRY_RANGE_PCT*100:.2f}%){COLOR_RESET}")
+
+KRAKEN_PAIR = get_valid_kraken_pair(TRADING_PAIR)
+zone_machine = BestValueZoneMachine4Dec(KRAKEN_PAIR)
+zone_machine.initialize_zones()
+
+config_thread = threading.Thread(target=config_monitor, daemon=True)
+config_thread.start()
+
+last_trade_time = 0
+TRADE_MIN_INTERVAL = 60
+all_prices = []
+
+# ========== Main Loop ==========
+while True:
+    try:
+        # Process manual triggers first
+        while not manual_trigger_queue.empty():
+            trigger = manual_trigger_queue.get()
+            logging.info(f"Manual trigger dequeued: {trigger}")
+            price = get_ticker()
+            if price is None:
+                logging.warning("Manual trigger: failed to fetch ticker price.")
+                continue
+            price = round(price, 4)
+            if trigger == "BUY" and not active_position:
+                print(f"{COLOR_GREEN}🚀 MANUAL BUY TRIGGERED! Price: ${price:.4f}{COLOR_RESET}")
+                amount = dynamic_position_size(price)
+                order_result = place_order('buy', amount, price)
+                logging.info(f"Manual buy order_result: {order_result}")
+                if 'error' in order_result and order_result['error']:
+                    print(f"{COLOR_RED}Buy error: {order_result['error']}{COLOR_RESET}")
+                else:
+                    print(f"{COLOR_GREEN}Bought {amount:.{BOND_DECIMALS}f} {TRADING_PAIR} @ ${price:.4f}{COLOR_RESET}")
+                    active_position = True
+                    entry_price = price
+                    token_amount = amount
+                    position_investment = INVESTMENT_AMOUNT
+                    last_trade_time = time.time()
+            elif trigger == "SELL" and active_position:
+                print(f"{COLOR_GREEN}💰 MANUAL SELL TRIGGERED! Price: ${price:.4f}{COLOR_RESET}")
+                current_profit = calculate_precise_profit(entry_price, price, token_amount)
+                if current_profit is None:
+                    print(f"{COLOR_RED}Profit calculation error, skipping sell.{COLOR_RESET}")
+                    continue
+                order_result = place_order('sell', token_amount, price)
+                logging.info(f"Manual sell order_result: {order_result}")
+                if 'error' in order_result and order_result['error']:
+                    print(f"{COLOR_RED}Sell error: {order_result['error']}{COLOR_RESET}")
+                else:
+                    print(f"{COLOR_GREEN}Sold {token_amount:.{BOND_DECIMALS}f} {TRADING_PAIR} for ${price*token_amount:.4f}{COLOR_RESET}")
+                    print(f"{COLOR_GREEN}Entry: ${entry_price:.4f} | Exit: ${price:.4f} | Profit: ${current_profit:.4f}{COLOR_RESET}")
+                    active_position = False
+                    position_investment = 0
+                    last_trade_time = time.time()
+
+        price = get_ticker()
+        if price is None:
+            print(f"{COLOR_YELLOW}Failed to get market price. Retrying...{COLOR_RESET}")
+            time.sleep(PRICE_CHECK_INTERVAL)
+            continue
+        price = round(price, 4)
+        all_prices.append(price)
+
+        ohlc_data = get_ohlc(KRAKEN_PAIR, interval=1, lookback=20)
+        if not ohlc_data:
+            print(f"{COLOR_RED}No OHLC data, skipping tick.{COLOR_RESET}")
+            time.sleep(PRICE_CHECK_INTERVAL)
+            continue
+
+        trend = get_trend(ohlc_data, window=10)
+        zone_status = zone_machine.price_zone(price)
+
+        if DEBUG:
+            print(f"\n{COLOR_CYAN}↗ Current Market Price: ${price:.4f} | Zone: {zone_status} | Trend: {trend}{COLOR_RESET}")
+            print(f"{COLOR_MAGENTA}Zones — BUY: {zone_machine.buy_zone}, NEUTRAL: {zone_machine.neutral_zone}, SELL: {zone_machine.sell_zone}{COLOR_RESET}")
+            print(f"{COLOR_MAGENTA}Active Position: {active_position} | Entry: ${entry_price:.4f} | TokenAmt: {token_amount:.8f}{COLOR_RESET}")
+            if zone_status == "BUY":
+                avg_low = np.mean(zone_machine.buy_lows) if zone_machine.buy_lows else None
+                print(f"{COLOR_BLUE}Tracked BUY avg_low: {avg_low}, min_avg_low_seen: {zone_machine.min_avg_low_seen}{COLOR_RESET}")
+            if zone_status == "SELL":
+                avg_high = np.mean(zone_machine.sell_highs) if zone_machine.sell_highs else None
+                print(f"{COLOR_BLUE}Tracked SELL avg_high: {avg_high}, max_avg_high_seen: {zone_machine.max_avg_high_seen}{COLOR_RESET}")
+
+        # Zone reset check
+        if zone_machine.zones_expired(price):
+            distance_pct = abs(price - zone_machine.median) / zone_machine.median if zone_machine.median else 0
+            if distance_pct > 0.08:
+                print(f"{COLOR_YELLOW}Price far from median ({distance_pct*100:.1f}%). Recalculating zones using Bollinger...{COLOR_RESET}")
+                zone_machine.initialize_zones(use_bollinger=True)
+            else:
+                zone_machine.initialize_zones()
+            continue
+
+        now = time.time()
+
+        # Auto BUY path (depth-aware)
+        if not active_position:
+            best_buy_price = zone_machine.track_best_buy(price)
+            if best_buy_price is not None and now - last_trade_time > TRADE_MIN_INTERVAL:
+                # Require trend == up to avoid buying into downtrend
+                if trend != 'up':
+                    logging.info(f"Auto-buy skipped because trend != up (trend={trend})")
+                else:
+                    # compute intended base amount
+                    base_amount = dynamic_position_size(best_buy_price)
+                    # estimate depth impact vs reference price (use current ticker price as more conservative ref)
+                    depth_info = estimate_slippage_and_liquidity('buy', price, base_amount)
+                    if not depth_info['filled']:
+                        logging.info(f"Auto-buy skipped: insufficient orderbook depth (available_base={depth_info.get('available_base')})")
+                    else:
+                        slippage = depth_info['slippage_pct']
+                        available = depth_info['available_base']
+                        # require at least MIN_LIQUIDITY_RATIO of requested base available in the fetched depth
+                        if available < base_amount * MIN_LIQUIDITY_RATIO:
+                            logging.info(f"Auto-buy skipped: not enough liquidity within depth (available {available:.8f} < required_ratio*base_amount {base_amount*MIN_LIQUIDITY_RATIO:.8f})")
+                        elif slippage > MAX_SLIPPAGE_PCT:
+                            logging.info(f"Auto-buy skipped: estimated slippage {slippage*100:.2f}% > MAX_SLIPPAGE_PCT {MAX_SLIPPAGE_PCT*100:.2f}% (exec_price {depth_info['exec_price']:.4f} vs ref {price:.4f})")
+                        else:
+                            # Acceptable — place order (we keep current logic: place market order)
+                            logging.info(f"Auto-buy proceeding: estimated exec_price={depth_info['exec_price']:.4f}, slippage={slippage*100:.3f}%, levels={depth_info['levels_consumed']}")
+                            amount = base_amount
+                            order_result = place_order('buy', amount, depth_info['exec_price'])
+                            logging.info(f"Auto buy order_result: {order_result}")
+                            if 'error' in order_result and order_result['error']:
+                                print(f"{COLOR_RED}Buy error: {order_result['error']}{COLOR_RESET}")
+                            else:
+                                print(f"{COLOR_GREEN}Bought {amount:.{BOND_DECIMALS}f} {TRADING_PAIR} @ approx ${depth_info['exec_price']:.4f}{COLOR_RESET}")
+                                active_position = True
+                                entry_price = depth_info['exec_price']
+                                token_amount = amount
+                                position_investment = INVESTMENT_AMOUNT
+                                last_trade_time = now
+
+        # Stop-loss
+        if active_position and price < entry_price * (1 - STOP_LOSS_PCT):
+            print(f"{COLOR_RED}Stop-loss triggered! Selling position at ${price:.4f}.{COLOR_RESET}")
+            order_result = place_order('sell', token_amount, price)
+            logging.info(f"Stop-loss order_result: {order_result}")
+            if 'error' in order_result and order_result['error']:
+                print(f"{COLOR_RED}Stop-loss sell error: {order_result['error']}{COLOR_RESET}")
+            else:
+                print(f"{COLOR_GREEN}Sold {token_amount:.{BOND_DECIMALS}f} {TRADING_PAIR} for ${price*token_amount:.4f} (Stop-loss){COLOR_RESET}")
+                print(f"{COLOR_GREEN}Entry: ${entry_price:.4f} | Exit: ${price:.4f} | Profit: {calculate_precise_profit(entry_price, price, token_amount):.4f}{COLOR_RESET}")
+                active_position = False
+                position_investment = 0
+                last_trade_time = now
+            time.sleep(PRICE_CHECK_INTERVAL)
+            continue
+
+        # Auto SELL path (depth-aware; sells on first down tick if conditions met)
+        if active_position:
+            best_sell_price = zone_machine.track_best_sell(price, entry_price, token_amount)
+            if best_sell_price is not None:
+                best_profit = calculate_precise_profit(entry_price, best_sell_price, token_amount)
+                if best_profit is None:
+                    logging.warning("Auto-sell: profit calculation returned None; skipping sell.")
+                else:
+                    # As requested: trigger on first 'down' tick that satisfies profit/fee/average-high
+                    if trend == 'down':
+                        # estimate depth for selling token_amount (we will simulate consuming bids)
+                        depth_info = estimate_slippage_and_liquidity('sell', price, token_amount)
+                        if not depth_info['filled']:
+                            logging.info("Auto-sell skipped: insufficient bid depth to fill sell")
+                        else:
+                            slippage = depth_info['slippage_pct']
+                            available = depth_info['available_base']
+                            if available < token_amount * MIN_LIQUIDITY_RATIO:
+                                logging.info("Auto-sell skipped: not enough liquidity within depth")
+                            elif slippage > MAX_SLIPPAGE_PCT:
+                                logging.info(f"Auto-sell skipped: estimated slippage {slippage*100:.2f}% > MAX_SLIPPAGE_PCT")
+                            elif best_profit < MIN_PROFIT:
+                                logging.info(f"Auto-sell skipped: best_profit ${best_profit:.4f} < MIN_PROFIT ${MIN_PROFIT:.4f}")
+                            else:
+                                logging.info(f"Auto-sell proceeding: estimated exec_price={depth_info['exec_price']:.4f}, slippage={slippage*100:.3f}%")
+                                order_result = place_order('sell', token_amount, depth_info['exec_price'])
+                                logging.info(f"Auto sell order_result: {order_result}")
+                                if 'error' in order_result and order_result['error']:
+                                    print(f"{COLOR_RED}Sell error: {order_result['error']}{COLOR_RESET}")
+                                else:
+                                    print(f"{COLOR_GREEN}Sold {token_amount:.{BOND_DECIMALS}f} {TRADING_PAIR} @ approx ${depth_info['exec_price']:.4f}{COLOR_RESET}")
+                                    print(f"{COLOR_GREEN}Entry: ${entry_price:.4f} | Exit: ${depth_info['exec_price']:.4f} | Profit: ${best_profit:.4f}{COLOR_RESET}")
+                                    active_position = False
+                                    position_investment = 0
+                                    last_trade_time = now
+                    else:
+                        logging.info(f"Auto-sell waiting for trend down (current trend={trend})")
+
+        # Per-tick active position profit log
+        if active_position:
+            current_profit = calculate_precise_profit(entry_price, price, token_amount)
+            print(f"{COLOR_BLUE}Position: {token_amount:.{BOND_DECIMALS}f} {TRADING_PAIR} @ ${entry_price:.4f}")
+            print(f"{COLOR_MAGENTA}Current Profit: ${current_profit:.4f}{COLOR_RESET}")
+
+        time.sleep(PRICE_CHECK_INTERVAL)
+
+    except KeyboardInterrupt:
+        print("\n\n" + "="*60)
+        print(f"{COLOR_MAGENTA}Entering configuration mode... (type 'q' to resume trading){COLOR_RESET}")
+        print("="*60)
+        while config_thread.is_alive():
+            time.sleep(1)
+        config_thread = threading.Thread(target=config_monitor, daemon=True)
+        config_thread.start()
+
+    except Exception as e:
+        logging.error(f"Main loop error: {str(e)}")
+        print(f"{COLOR_RED}Main loop error: {str(e)}{COLOR_RESET}")
+        import traceback
+        traceback.print_exc()
+        time.sleep(20)
