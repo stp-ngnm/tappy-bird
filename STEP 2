@@ -1,0 +1,98 @@
+step one is in the read me face page
+
+1-buy an android or desktop-
+2-use termux or debian arm terminals-
+3-make a kraken account-
+4-get api keys-
+5-allocate $20+ to the machine by leaving it in the kraken account-
+
+
+STEP 2
+-use termux or debian arm terminals-
+to install these listed dependancies into the terminal
+-tested to function on both platforms-
+
+NOTE
+----on a good day 
+with $12.34 set to fold XMR
+this machine is known to turn over 25-40 cent trades once or twice an hour
+this depends fully on the market flux price of coin and the allocated amount of money
+
+--> do not hit q in the config comands unless you want to lose the ability to configure commands in that session <--
+--> do not close the session unless you want to terminate the session With the machine <--
+
+OPTION 1) Debian (apt)
+  - Install system packages:
+
+sudo apt update && sudo apt install -y pip pipx git tmux curl wget build-essential libssl-dev libffi-dev
+    
+    sudo apt install python3-setuptools
+    sudo apt install python3-wheel  
+    sudo apt install python3-requests 
+    sudo apt install python3-numpy 
+    sudo apt install python3-pandas
+
+  paste the machine into a nano file and run using the command python <file name>
+
+-->example start out put<-- 11/03/2025 12:30pm ets
+
+
+─$ python Loser
+Starting Depth-Aware Trading Bot (avg-entry ±0.15%)
+Using pair format: XMRUSD
+Calculating Zones...
+=== ZONES INITIALIZED ===
+Median:      $345.8625
+Buy Zone:    [$311.9325 - $345.2625]
+Neutral Zone:[$345.2625 - $346.4625]
+Sell Zone:   [$346.4625 - $379.7925]
+=========================
+
+Configuration Active!
+Commands: 'b'=buy now, 's'=sell now, 'i'=investment, 't'=trading pair, 'c'=show config, 'q'=quit
+Config> 
+↗ Current Market Price: $340.0500 | Zone: BUY | Trend: down
+Zones — BUY: (311.9325, 345.2625), NEUTRAL: (345.2625, 346.4625), SELL: (346.4625, 379.7925)
+Active Position: False | Entry: $0.0000 | TokenAmt: 0.00000000
+Tracked BUY avg_low: None, min_avg_low_seen: None
+Entered BUY zone. Tracking lows. initial avg_low=340.0500
+BUY range condition met: price $340.0500 in [339.5399, 340.5601]. Signaling buy at ref $340.0500
+2025-11-03 17:29:42,557 INFO: Auto-buy skipped because trend != up (trend=down)
+
+
+
+
+OPTION 2) Termux (pkg)
+   - Install Termux packages:
+
+pkg update -y && pkg upgrade -y && pkg install -y pip git tmux curl wget clang make openssl-tool libffi
+    
+    pip install setuptools wheel
+    pip install requests 
+    pip install numpy
+    pip install pandas
+ 
+paste the machine into a nano file and run using the command python <file name>
+
+
+─$ python Loser
+Starting Depth-Aware Trading Bot (avg-entry ±0.15%)
+Using pair format: XMRUSD
+Calculating Zones...
+=== ZONES INITIALIZED ===
+Median:      $345.8625
+Buy Zone:    [$311.9325 - $345.2625]
+Neutral Zone:[$345.2625 - $346.4625]
+Sell Zone:   [$346.4625 - $379.7925]
+=========================
+
+Configuration Active!
+Commands: 'b'=buy now, 's'=sell now, 'i'=investment, 't'=trading pair, 'c'=show config, 'q'=quit
+Config> 
+↗ Current Market Price: $340.0500 | Zone: BUY | Trend: down
+Zones — BUY: (311.9325, 345.2625), NEUTRAL: (345.2625, 346.4625), SELL: (346.4625, 379.7925)
+Active Position: False | Entry: $0.0000 | TokenAmt: 0.00000000
+Tracked BUY avg_low: None, min_avg_low_seen: None
+Entered BUY zone. Tracking lows. initial avg_low=340.0500
+BUY range condition met: price $340.0500 in [339.5399, 340.5601]. Signaling buy at ref $340.0500
+2025-11-03 17:29:42,557 INFO: Auto-buy skipped because trend != up (trend=down)
