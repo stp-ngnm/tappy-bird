@@ -9,6 +9,7 @@ BUY one... install termux terminal emulator on it
 and get to affassittaitin the machine; Would ya ( - . - )
 
 ---root access is not required
+
 ---takes no more storage than dependacies and py script all looging and data handling is self suficiant
 
 the easiest way to deploy this machine is to go to its file shown above
