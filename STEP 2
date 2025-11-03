@@ -3,7 +3,7 @@ step one is in the read me face page
 1-buy an android or desktop-
 2-use termux or debian arm terminals-
 3-make a kraken account-
-4-get api keys-
+4-set up the terminals-
 5-allocate $20+ to the machine by leaving it in the kraken account-
 
 
@@ -11,6 +11,9 @@ STEP 2
 -use termux or debian arm terminals-
 to install these listed dependancies into the terminal
 -tested to function on both platforms-
+once part is done if you havent go ahead and make the nano file 
+and drop the copied machine into it
+save youll have to open it a second time to set up its configurations and add your api keys 
 
 NOTE
 ----on a good day 
