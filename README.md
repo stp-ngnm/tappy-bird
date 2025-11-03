@@ -8,8 +8,8 @@ its made to be used in a $60 android trackphone you can get from the wallmart or
 BUY one... install termux terminal emulator on it
 and get to affassittaitin the machine; Would ya ( - . - )
 
-# root access is not required
-# takes no more storage than dependacies and py script all looging is self suficiant
+---root access is not required
+---takes no more storage than dependacies and py script all looging and data handling is self suficiant
 
 the easiest way to deploy this machine is to go to its file shown above
 copy paste it into a nano file in your termux emulator and save it
