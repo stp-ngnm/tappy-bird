@@ -1,11 +1,14 @@
 step one is in the read me face page
 
 1-buy an android or desktop-
-2-use termux or debian arm terminals-
-3-make a kraken account-
-4-set up the terminals-
+2-make a kraken account-
+youll want to do this in a web browser or on a desktop
+if you dont you wont be able to get to the api settings
+3-use android-termux or debian arm terminals-
+4-set up the terminal-
+-and the machines configurations-
 5-allocate $20+ to the machine by leaving it in the kraken account-
-
+its good to make sure you can pay for more than the coin is worth
 
 STEP 2
 -use termux or debian arm terminals-
@@ -19,9 +22,8 @@ NOTE
 ----on a good day 
 with $12.34 set to fold XMR
 this machine is known to turn over 25-40 cent trades once or twice an hour
-this depends fully on the market flux price of coin and the allocated amount of money
+this depends fully on the market flux; and the ratio (coin price/spend limit)
 
---> do not hit q in the config comands unless you want to lose the ability to configure commands in that session <--
 --> do not close the session unless you want to terminate the session With the machine <--
 
 OPTION 1) Debian (apt)
