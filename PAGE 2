@@ -76,6 +76,21 @@ paste the machine into a nano file and run using the command python <file name>
 -check terminal for dependancies/updates
 -check the nano file for api keys/the machines configurations and funding
 
+5-allocate on your kraken account $20+ to the machine-
+by leaving it accessably in the kraken account as your base curency
+its good to make sure you can pay for more than the coin is worth
+when started let it run for a day keep make sure to keep an eye on it
+if it fails make sure the market you pick isnt also in a decline
+and check the figures in the nano file offered in the configuration information tab 
+to be sure they have good values
+saddly i cant personaly make a range that works every time 
+because where LTC right now is 85-95
+BTC is still up over 100K
+the figures just cant match every time
+so youll have to do that yourslef 
+the configurations file will give you some information the in script snips wont
+
+
 NOTE
 -this machine is tested to run in both terminals-
 ----on a good day 
