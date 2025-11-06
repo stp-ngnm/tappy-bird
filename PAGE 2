@@ -1,33 +1,40 @@
 step one is in the read me face page
 
 1-buy an android or desktop-
+budget devices are what this is about
+there are 0 hardwear requirments other than that you have some to work with
+
 2-make a kraken account-
+once this is done youll have to... 
+
+(first get comfortable make an account 
+and figure out how make the api using the website in a browser)
+or 
+(you can download the app make an account
+add your cradentcials to attain funding
+and then log into a browser for api keys
+before starting the setting up the machine for use in terminal)
+
 youll want to do this in a web browser or on a desktop
-if you dont you wont be able to get to the api settings
+api settings are not avalable in the app 
+
 3-use android-termux or debian arm terminals-
-4-set up the terminal-
--and the machines configurations-
-5-allocate $20+ to the machine by leaving it in the kraken account-
-its good to make sure you can pay for more than the coin is worth
-
-STEP 3
--use termux or debian arm terminals-
-to install these listed dependancies into the terminal
--tested to function on both platforms-
-once part is done if you havent go ahead and make the nano file 
-and drop the copied machine into it
-save youll have to open it a second time to set up its configurations and add your api keys 
-
-NOTE
-----on a good day 
-with $12.34 set to fold XMR
-this machine is known to turn over 25-40 cent trades once or twice an hour
-this depends fully on the market flux; and the ratio (coin price/spend limit)
-
---> do not close the session unless you want to terminate the session With the machine <--
+start by installing these listed dependancies into the terminal
 
 OPTION 1) Debian (apt)
   - Install system packages:
+i start with fire wall and vpn and a password manager
+sudo apt install ufw
+sudo ufw enable
+sudo ufw default allow out going 
+sudo ufw default deny incoming
+
+these next 2 should make app icons
+sudo apt install keepassxc
+sudo apt install riseup-vpn
+check for updates
+
+-when thats all done youll need these dependancies before making the nano file 
 
 sudo apt update && sudo apt install -y pip pipx git tmux curl wget build-essential libssl-dev libffi-dev
     
@@ -37,38 +44,24 @@ sudo apt update && sudo apt install -y pip pipx git tmux curl wget build-essenti
     sudo apt install python3-numpy 
     sudo apt install python3-pandas
 
-  paste the machine into a nano file and run using the command python <file name>
 
--->example start out put<-- 11/03/2025 12:30pm ets
+-Termux option)
+you could use google play if you dont personaly give a shit about trackers and data privacy
+or you could do what i do
+install f-droid's apk from the internet install termux and tools allong with the aurora store
+arrora is where youll get things like the kraken app - the browser you might use - riseup vpn ect
 
-
-─$ python Loser
-Starting Depth-Aware Trading Bot (avg-entry ±0.15%)
-Using pair format: XMRUSD
-Calculating Zones...
-=== ZONES INITIALIZED ===
-Median:      $345.8625
-Buy Zone:    [$311.9325 - $345.2625]
-Neutral Zone:[$345.2625 - $346.4625]
-Sell Zone:   [$346.4625 - $379.7925]
-=========================
-
-Configuration Active!
-Commands: 'b'=buy now, 's'=sell now, 'i'=investment, 't'=trading pair, 'c'=show config, 'q'=quit
-Config> 
-↗ Current Market Price: $340.0500 | Zone: BUY | Trend: down
-Zones — BUY: (311.9325, 345.2625), NEUTRAL: (345.2625, 346.4625), SELL: (346.4625, 379.7925)
-Active Position: False | Entry: $0.0000 | TokenAmt: 0.00000000
-Tracked BUY avg_low: None, min_avg_low_seen: None
-Entered BUY zone. Tracking lows. initial avg_low=340.0500
-BUY range condition met: price $340.0500 in [339.5399, 340.5601]. Signaling buy at ref $340.0500
-2025-11-03 17:29:42,557 INFO: Auto-buy skipped because trend != up (trend=down)
+----ways to avoid trackers----geting the f-droid apk---- 
+firefox, duckduckgo or tor + extensions ublock & privacy badger 
 
 
-
-
-OPTION 2) Termux (pkg)
-   - Install Termux packages:
+-when you have the terminal in your posetion 
+youll have to install the dependacies
+and use the same nano file for
+you should save it to open it a second time and set up its configurations/add your api keys
+that way theres no slipping in set up
+ctl+x and y - enter to save and exit the file 
+type -> python <file name> to exicute
 
 pkg update -y && pkg upgrade -y && pkg install -y pip git tmux curl wget clang make openssl-tool libffi
     
@@ -79,6 +72,24 @@ pkg update -y && pkg upgrade -y && pkg install -y pip git tmux curl wget clang m
  
 paste the machine into a nano file and run using the command python <file name>
 
+4-check the terminal and the account information
+-check terminal for dependancies/updates
+-check the nano file for api keys/the machines configurations and funding
+
+NOTE
+-this machine is tested to run in both terminals-
+----on a good day 
+with $12.34 set to fold XMR
+this machine is known to turn over 25-40 cent trades once or twice an hour
+this depends fully on the market flux; and the ratio (coin price/spend limit)
+
+--> do not close the terminal unless you want to terminate the session With the machine <--
+--> check setting in linux
+--> use wake lock in termux by scrolling down from the top
+
+------------------------------------------------------------
+-->example start out put<-- 11/03/2025 12:30pm ets
+------------------------------------------------------------
 
 ─$ python Loser
 Starting Depth-Aware Trading Bot (avg-entry ±0.15%)
