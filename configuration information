@@ -27,7 +27,7 @@ this math is the same in other parts of the gonfigurations
 # ======= AVG-ENTRY TUNING =======
 BUY_AT_LOWEST_AVERAGE = True
 SELL_AT_HIGHEST_AVERAGE = True
-ENTRY_RANGE_PCT = 0.0015          # ±0.15% acceptance around averages
+ENTRY_RANGE_PCT = 0.007          # ±0.7% acceptance around averages
 # =================================
 
 keep in mind that lowest average does not mean lowest price
