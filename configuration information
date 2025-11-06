@@ -1,0 +1,45 @@
+# ======== KRAKEN API CREDENTIALS ========
+# the tool used to make kraken api keys is in the settings on the krakenpro >website< >website only< 
+# keep keys in quotes "xxxxxxx"
+
+API_KEY = "YOUR_API_KEY_HERE"
+
+API_SECRET = "YOUR_API_SECRET_HERE"
+
+# ========================================
+
+# ======== TRADING CONFIG ========
+TRADING_PAIR = "XXXXUSD"         # change by entering crypto-base curency (like this "AAABBB")
+KRAKEN_PAIR = TRADING_PAIR
+INVESTMENT_AMOUNT = 20.00       # enter any amount limmited by kraken
+FEE_RATE = 0.0026               # 0.26% dont change this its a dummy switch
+BOND_DECIMALS = 8               # the number of decimals below 0 its capable of detecting
+MIN_PROFIT = 0.25               # configure to compare with the allocated investment amount
+STOP_LOSS_PCT = 0.018           # 1.8% stop-loss 
+# =================================
+
+# ======= AVG-ENTRY TUNING =======
+BUY_AT_LOWEST_AVERAGE = True
+SELL_AT_HIGHEST_AVERAGE = True
+ENTRY_RANGE_PCT = 0.0015          # ±0.15% acceptance around averages
+# =================================
+
+# ======= DEPTH / SLIPPAGE CONFIG =======
+MAX_SLIPPAGE_PCT = 0.01        # maximum acceptable slippage (1% default)
+MIN_LIQUIDITY_RATIO = 0.6      # minimum fraction 0.6 >not sure what this one is<
+ORDERBOOK_DEPTH_LEVELS = 50    # number of price levels to fetch from Kraken depth
+# =================================
+
+API_URL = "https://api.kraken.com"
+API_VERSION = "0"
+
+# ======== ZONE CONFIGURATION ========
+# adapt this to the price of the coin in trade
+# 
+ZONE_BUFFER = 1.2            # $ 1.2 no act zone
+SELL_ZONE_EXTRA = 33.33      # $ 33.33 detect/sell zone above buffer
+BUY_ZONE_EXTRA = 33.33       # $ 33.33 detect/buy zone below buffer
+PRICE_CHECK_INTERVAL = 15    # calls api every 15 seconds -->keep bellow 60<--
+ZONE_RESET_HOLD_TIME = 20    # price tick leaving zones longer than 20sec machine recalculates zones 
+MEDIAN_LOOKBACK = 360        # 300 is equivilant to 5 hours of every 1 min tick
+# =====================================
