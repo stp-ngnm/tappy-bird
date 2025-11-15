@@ -22,14 +22,19 @@ better directions are found in the file title step2
 # NOTE for android --- termux users
 there are some apps you can use if you find yourself concernd with google instalation and activity trackers
 install the f-droid store from https://f-droid.org/ use it to install 
-aurora store a google play store client that removes googles cookies and the termux emulator app(s)
+aurora store a google play store client that removes googles cookies and trackers)
+
+ next the termux emulator with or without its extension app(s) from the f-driod app
 
 # finaly
 outside of not caring to much about stray hairs; ive been working on a ui shell for a more user friendly output
-i dont expect it to be usable untill 01/27 - 01/28 if i can even remain commited to doing that even
+i dont expect it to be usable untill 01/27 - 01/28 if i can even remain commited to doing that
+
 if you have an edit you think is worth sharing or you want added to this project page
 ... iiiiillllll have to set up a contact page for you...
+
 ...if ever edited...
+
 ...if ever found...
 
 Enjoy
