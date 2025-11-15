@@ -21,7 +21,7 @@ api settings are not avalable in the app
 3-use android-termux or debian arm terminals-
 start by installing these listed dependancies into the terminal
 
-OPTION 1) Debian (apt)
+-OPTION 1) Debian (apt) Machine learning modle /and/or/ machine script
   - Install system packages:
 i start with fire wall and vpn and a password manager
 sudo apt install ufw
@@ -44,8 +44,11 @@ sudo apt update && sudo apt install -y pip pipx git tmux curl wget build-essenti
     sudo apt install python3-numpy 
     sudo apt install python3-pandas
 
+    sudo apt install python3-sklearn   #for the ML modle#
 
--Termux option)
+
+
+-OPTION 2 Andriod Termux)
 you could use google play if you dont personaly give a shit about trackers and data privacy
 or you could do what i do
 install f-droid's apk from the internet install termux and tools allong with the aurora store
@@ -127,3 +130,39 @@ Tracked BUY avg_low: None, min_avg_low_seen: None
 Entered BUY zone. Tracking lows. initial avg_low=340.0500
 BUY range condition met: price $340.0500 in [339.5399, 340.5601]. Signaling buy at ref $340.0500
 2025-11-03 17:29:42,557 INFO: Auto-buy skipped because trend != up (trend=down)
+-----------------------------------------------------------------------------------
+---> the learner output as follows
+-----------------------------------------------------------------------------------
+
+─$ python ML
+Starting ML-Enhanced Depth-Aware Trading Bot
+[ML] Machine Learning: ENABLED
+Using pair format: ETHUSD
+Calculating Zones...
+=== ZONES INITIALIZED ===
+Median:      $3172.3500
+Buy Zone:    [$2945.6900 - $3167.9100]
+Neutral Zone:[$3167.9100 - $3176.7900]
+Sell Zone:   [$3176.7900 - $3399.0100]
+=========================
+[ML] Fetching historical data for initial training...
+[ML] Training models on 721 historical candles...
+[ML] Price predictor trained. RMSE: $1.1931
+[ML] Volatility predictor trained
+[ML] Pattern classifier trained. Accuracy: 100.0%
+[ML] Timing scorer trained
+
+Configuration Active!
+Commands: 'b'=buy now, 's'=sell now, 'i'=investment, 't'=trading pair, 'c'=show config, 'q'=quit
+Config> [ML] Pattern: UNKNOWN (conf: 0.0%) | Timing: 50.0% | Risk: 50.0%
+[ML] Market Regime: UNKNOWN (conf: 0.0%)
+[ML] Adaptive Thresholds: min_conf=0.62 max_risk=0.76
+
+↗ Current Market Price: $3197.6200 | Zone: SELL | Trend: up
+Zones – BUY: (2945.69, 3167.91), NEUTRAL: (3167.91, 3176.79), SELL: (3176.79, 3399.01)
+Active Position: False | Entry: $0.0000 | TokenAmt: 0.00000000
+Tracked SELL avg_high: None, max_avg_high_seen: None
+[ML] Pattern: UNKNOWN (conf: 0.0%) | Timing: 50.0% | Risk: 50.0%
+[ML] Market Regime: UNKNOWN (conf: 0.0%)
+[ML] Adaptive Thresholds: min_conf=0.62 max_risk=0.76
+
