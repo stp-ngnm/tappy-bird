@@ -18,6 +18,8 @@ once done you can start your personal edits to its configurations
 details for configuration are commented out in script
 better directions are found in the file title step2
 
+# NOTE for debian users
+you can use either of the 2 options in a gnome terminal
 
 # NOTE for android --- termux users
 there are some apps you can use if you find yourself concernd with google instalation and activity trackers
