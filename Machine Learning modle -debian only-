@@ -1,0 +1,1810 @@
+# ML-ENHANCED Depth-aware trading bot with comprehensive machine learning
+# Includes: price prediction, pattern recognition, volatility forecasting,
+# optimal execution timing, and dynamic risk scoring 
+
+import numpy as np
+import requests
+import time
+import threading
+import logging
+from queue import Queue
+from collections import deque
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import mean_squared_error
+import warnings
+warnings.filterwarnings('ignore')
+
+# ======== ANSI COLOR CODES ========
+COLOR_GREEN = "\033[92m"
+COLOR_YELLOW = "\033[93m"
+COLOR_RED = "\033[91m"
+COLOR_CYAN = "\033[96m"
+COLOR_BLUE = "\033[94m"
+COLOR_MAGENTA = "\033[95m"
+COLOR_PURPLE = "\033[35m"  # New: for ML logs
+COLOR_RESET = "\033[0m"
+# ==================================
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
+DEBUG = True
+
+# ======== KRAKEN API CREDENTIALS ========
+API_KEY = "YOUR-API-KEYS"
+API_SECRET = "YOUR-API-KEYS"
+# ========================================
+
+# ======== TRADING CONFIG ========
+TRADING_PAIR = "ETHUSD"         # change by entering crypto-base curency (like this "AAABBB")
+KRAKEN_PAIR = TRADING_PAIR      
+INVESTMENT_AMOUNT = 25.25       # enter any amount limmited by kraken
+FEE_RATE = 0.0026               # 0.26% dont change this its a dummy switch       
+BOND_DECIMALS = 8               # the number of decimals below 0 its capable of detecting
+MIN_PROFIT = 0.25               # configure to compare with the allocated investment amount
+STOP_LOSS_PCT = 0.1000          # 10.00% stop-loss
+# =================================
+
+# ======= AVG-ENTRY TUNING =======
+BUY_AT_LOWEST_AVERAGE = True
+SELL_AT_HIGHEST_AVERAGE = True
+ENTRY_RANGE_PCT = 0.003               # ±0.03% acceptance around averages
+# =================================
+
+# ======= DEPTH / SLIPPAGE CONFIG =======
+MAX_SLIPPAGE_PCT = 0.01               # maximum acceptable slippage (1% default)
+MIN_LIQUIDITY_RATIO = 0.6             # minimum fraction 0.6 >not sure what this one is<
+ORDERBOOK_DEPTH_LEVELS = 50           # number of price levels to fetch from Kraken depth
+# =================================
+
+# ======== ML CONFIGURATION ========
+ML_ENABLED = True
+
+# Training & Data Collection
+ML_HISTORICAL_LOOKBACK = 1500  # number of 1-minute candles fetched from Kraken for initial model training.
+# 1000 candles = ~16.7 hours of historical data) more data = better baseline
+# keep 500-2000. Lower for a slow startup, higher for more stable initial predictions.
+
+ML_RETRAIN_INTERVAL = 75  # retrains all models every N ticks (1 tick = 15 seconds by default).
+# 75 ticks = 18.75 minutes between retraining
+# 50-150 ticks. Lower for volatile markets, higher for stable markets.
+# more frequent = adapts faster to market changes, but uses more CPU
+
+ML_ONLINE_BUFFER_SIZE = 360  # the number of recent samples kept in memory for retraining.
+# this will prevent memory overflow during long sessions
+# 200-500. Higher = more historical context, but more memory.
+
+ML_MIN_TRAIN_SAMPLES = 75  # minimum samples required before attempting to retrain models.
+# won't retrain if less than 50 new samples collected
+# 30-100. Lower = trains faster initially, higher = more stable retraining.
+
+
+# Feature Engineering
+ML_FEATURE_WINDOW = 50  # number of recent price ticks used to calculate features.
+# uses last 30 prices to compute averages, momentum, volatility, etc.
+# larger window = captures longer-term patterns
+# 20-50. Higher for swing trading, lower for scalping.
+
+ML_MOMENTUM_WINDOWS = [5, 10, 20, 40]  # multiple timeframes for momentum calculation.
+# compares average of last 5 prices vs previous 5, etc.
+# captures short, medium, and long-term momentum
+# keep as-is, or add longer windows like [5, 10, 20, 40] for more context
+
+ML_VOLATILITY_WINDOWS = [10, 20, 30, 40]  # multiple timeframes for volatility (price variance) calculation.
+# this measures how much price fluctuates over different periods 
+# it also helps identify choppy vs smooth price action
+# keep as-is. Match roughly with momentum windows. 
+# add to it by doubbling the last number behind a -comma+space-
+
+ML_RSI_PERIOD = 14  # period for Relative Strength Index calculation (overbought/oversold indicator).
+# standard is 14 periods lower = more sensitive, higher = smoother
+# 10-20. Standard is 14.
+
+ML_MACD_FAST = 12  # MACD fast period
+ML_MACD_SLOW = 26  # MACD slow period
+# periods for MACD (Moving Average Convergence Divergence) indicator.
+# keep standard values unless you know what you're doing.
+
+ML_BOLLINGER_PERIOD = 20  # Bollinger bands period
+ML_BOLLINGER_STD = 2.0  # Bollinger bands standard deviation
+# bollinger bands settings (price envelope indicator).
+# standard is 20 period, 2 STD. Don't change unless experienced.
+
+# Prediction Settings
+ML_PRICE_PRED_HORIZON = 6  # how many ticks ahead to predict future price.
+# 5 ticks = 75 seconds ahead (at 15-sec intervals)
+# further ahead = more strategic but less accurate
+# 3-10. Lower for scalping, higher for position trading.
+
+ML_VOLATILITY_PRED_HORIZON = 4  # how many ticks ahead to predict future volatility.
+# 2-5. Keep lower than price prediction horizon.
+
+# Confidence & Risk Thresholds
+ML_MIN_CONFIDENCE = 0.62  # minimum confidence (0-1) required for ML to override zone-based signals.
+# higher = more conservative (fewer but more certain trades)
+# lower = more aggressive (more trades but some might be wrong)
+# 0.55-0.70. Start conservative (0.65+) and lower if missing opportunities.
+
+ML_HIGH_CONFIDENCE = 0.73  # threshold for "high confidence" that triggers special adjustments.
+# above 0.75 = allows higher slippage, lower profit requirements
+# defines what qualifies as a "strong" signal
+# 0.70-0.80. Should be 0.10-0.15 higher than MIN_CONFIDENCE.
+
+ML_MAX_RISK_THRESHOLD = 0.76  # combines volatility, uncertainty, and market condition
+# maximum acceptable risk score (0-1) for entering trades
+# 0.70 = won't enter if (risk > 70% of trade)
+# 0.60-0.80. Lower = safer but fewer trades.
+# this is what i call a stray hair dont be afraid to lose some money for unknown amount of time
+
+ML_CRITICAL_RISK_THRESHOLD = 0.80  # emergency override to protect capital
+# if risk > 0.85, bot sells position immediately
+# 0.80-0.90. Should be well above MAX_RISK_THRESHOLD.
+
+# Model Hyperparameters - Price Predictor
+ML_PRICE_N_ESTIMATORS = 100  # more trees = better predictions but slower
+ML_PRICE_MAX_DEPTH = 15  # deeper = captures complex patterns
+ML_PRICE_MIN_SAMPLES_SPLIT = 5  # minimum samples to split a node
+
+# N_ESTIMATORS: number of decision trees (more = better but slower)
+# MAX_DEPTH: how deep each tree can grow (deeper = captures complex patterns but can overfit)
+# MIN_SAMPLES_SPLIT: minimum samples needed to split a node (higher = prevents overfitting)
+# KEPP AS IS. Only tune if you understand Random Forests.
+
+# Model Hyperparameters - Volatility Predictor
+ML_VOL_N_ESTIMATORS = 75
+ML_VOL_MAX_DEPTH = 12
+ML_VOL_MIN_SAMPLES_SPLIT = 5
+# same as price predictor, but for volatility prediction.
+# slightly smaller model (75 vs 100 trees, 12 vs 15 depth)
+# keep as-is.
+
+# Model Hyperparameters - Pattern Classifier
+ML_PATTERN_N_ESTIMATORS = 100
+ML_PATTERN_MAX_DEPTH = 10
+ML_PATTERN_LEARNING_RATE = 0.15
+ML_PATTERN_MIN_SAMPLES_SPLIT = 5
+# classifies market as BUY/SELL/HOLD.
+# LEARNING_RATE: how aggressively each tree corrects previous errors (0.05-0.2)
+# lower learning rate = more stable but needs more trees
+# keep as-is. Learning rate 0.1 is standard.
+
+# Model Hyperparameters - Timing Scorer
+ML_TIMING_N_ESTIMATORS = 50
+ML_TIMING_MAX_DEPTH = 8
+ML_TIMING_MIN_SAMPLES_SPLIT = 5
+# cores optimal execution timing (0-1).
+# smaller/simpler model than others
+# keep as-is.
+
+# Trade Adjustment Factors
+ML_SLIPPAGE_MULTIPLIER_HIGH_CONF = 1.8  # allow more slippage for high confidence (1.5 → 1.8)
+**What it does:** For high-confidence trades, allows 1.8x normal slippage.
+- Normal max slippage = 1%, high-conf allows up to 1.8%
+- Ensures high-confidence trades execute even in thin orderbooks
+- **Recommendation:** 1.5-2.0. Higher = more aggressive execution.
+
+ML_PROFIT_MULTIPLIER_HIGH_CONF = 0.75  # accept lower profit for high confidence sells
+**What it does:** For high-confidence sells, accepts 75% of normal min profit.
+- If MIN_PROFIT = $0.25, high-conf sell accepts $0.1875
+- Allows earlier exits when ML predicts downturn
+- **Recommendation:** 0.70-0.85. Lower = exits earlier.
+
+ML_STOP_LOSS_TIGHT_MULTIPLIER = 0.6  # tighten stop-loss in high risk (0.7 → 0.6)
+**What it does:** In high-risk conditions, tightens stop-loss to 60% of normal.
+- If stop-loss = 10%, becomes 6% in high risk
+- Protects capital when ML detects danger
+- **Recommendation:** 0.5-0.7. Lower = more protective.
+
+ML_STOP_LOSS_LOOSE_MULTIPLIER = 1.5  # loosen stop-loss in strong uptrend (1.3 → 1.5)
+# in strong uptrend predictions, loosens stop-loss to 150% of normal.
+# gives winning trades more room to breathe
+# prevents premature exits during healthy retracements
+# 1.3-1.8. Higher = more tolerance for drawdowns.
+
+# Override Logic
+ML_ALLOW_ZONE_OVERRIDE = True  # allows ML to place trades outside of defined zones.
+# when False, ML only enhances zone-based decisions
+# true = more selective overrides.
+
+ML_REQUIRE_TREND_CONFIRMATION = True  # require trend alignment for ML overrides?
+# true = won't buy in downtrend even if ML says so
+# false = ML can buy anytime if confident
+# false for full ML autonomy, True for more conservative approach.
+
+# Ensemble & Voting
+ML_USE_ENSEMBLE_VOTING = True  # combine multiple signals for decisions
+**What it does:** Combines all 4 models (pattern, price, timing, risk) into single decision.
+- More robust than single model
+- **Recommendation:** Keep True for best results.
+
+ML_PATTERN_WEIGHT = 0.30  # weight for pattern classifier
+ML_PRICE_PRED_WEIGHT = 0.25  # weight for price prediction
+ML_TIMING_WEIGHT = 0.30  # weight for timing score
+ML_RISK_WEIGHT = 0.15  # weight for risk score
+# how much each model influences ensemble decision (must sum to 1.0).
+###DEFAULT FIG###
+# pattern classifier = 35% (most important)
+# price prediction = 25%
+# timing = 20%
+# risk = 20%
+# adjust these based on which models perform best. Pattern usually most reliable.
+
+# Advanced Features
+ML_USE_ORDERBOOK_IMBALANCE = True  # incorporates bid/ask volume imbalance in predictions.
+# provides valuable market microstructure data.
+
+ML_USE_VOLUME_PROFILE = True  # use volume patterns in predictions
+# volume confirms price action.
+
+ML_DETECT_REGIME_CHANGE = True  # it identifies if market is trending up/down or ranging.
+
+# Essential for adaptive trading.
+
+ML_ADAPTIVE_THRESHOLDS = True  # automatically adjusts confidence/risk thresholds based on accuracy.
+# if predictions accurate → becomes more aggressive
+# if predictions wrong → becomes more conservative
+# true. Self-improving system.
+
+# Logging & Diagnostics
+ML_VERBOSE_LOGGING = True  # detailed ML prediction logs
+# prints detailed ML predictions every tick.
+# true for monitoring, False for cleaner terminal output.
+
+ML_LOG_FEATURE_IMPORTANCE = True  # logs which features most influence predictions.
+# false normally, True only when tuning the bot.
+
+ML_SAVE_PREDICTIONS = True  # save predictions for analysis
+# essential for adaptive learning.
+
+ML_PREDICTION_HISTORY_SIZE = 300  # the amount of predictions to keep for accuracy.
+# 150-300. Higher = better accuracy tracking but more memory.
+
+# ==================================
+
+API_URL = "https://api.kraken.com"
+API_VERSION = "0"
+
+# ======== ZONE CONFIGURATION ========
+# adapt this to the price of the coin in trade
+
+ZONE_BUFFER = 8.88              # $ 1.2 no act zone
+SELL_ZONE_EXTRA = 222.22        # $ 33.33 detect/sell zone above buffer
+BUY_ZONE_EXTRA = 222.22         # $ 33.33 detect/buy zone below buffer
+PRICE_CHECK_INTERVAL = 15       # calls api every 15 seconds -->keep bellow 60<--
+ZONE_RESET_HOLD_TIME = 20       # price tick leaving zones longer than 20sec machine recalculates zones
+MEDIAN_LOOKBACK = 10656         # 300 is equivilant to 5 hours of every 1 min tick
+# =====================================
+
+# Trading state
+active_position = False
+entry_price = 0.0
+token_amount = 0.0
+position_investment = 0.0
+outside_zone_since = None
+manual_trigger_queue = Queue()
+
+# ML state
+ml_tick_count = 0
+price_history = deque(maxlen=1000)
+volume_history = deque(maxlen=1000)
+orderbook_history = deque(maxlen=500)
+
+
+# ============= ML MODELS & FEATURE ENGINEERING =============
+class MLTradingEnhancer:
+    def __init__(self):
+        # Price prediction model
+        self.price_predictor = RandomForestRegressor(
+            n_estimators=ML_PRICE_N_ESTIMATORS,
+            max_depth=ML_PRICE_MAX_DEPTH,
+            min_samples_split=ML_PRICE_MIN_SAMPLES_SPLIT,
+            random_state=42,
+            n_jobs=-1
+        )
+        
+        # Volatility prediction model
+        self.volatility_predictor = RandomForestRegressor(
+            n_estimators=ML_VOL_N_ESTIMATORS,
+            max_depth=ML_VOL_MAX_DEPTH,
+            min_samples_split=ML_VOL_MIN_SAMPLES_SPLIT,
+            random_state=42,
+            n_jobs=-1
+        )
+        
+        # Pattern recognition (buy/sell/hold classifier)
+        self.pattern_classifier = GradientBoostingClassifier(
+            n_estimators=ML_PATTERN_N_ESTIMATORS,
+            max_depth=ML_PATTERN_MAX_DEPTH,
+            learning_rate=ML_PATTERN_LEARNING_RATE,
+            min_samples_split=ML_PATTERN_MIN_SAMPLES_SPLIT,
+            random_state=42
+        )
+        
+        # Optimal timing scorer
+        self.timing_scorer = RandomForestRegressor(
+            n_estimators=ML_TIMING_N_ESTIMATORS,
+            max_depth=ML_TIMING_MAX_DEPTH,
+            min_samples_split=ML_TIMING_MIN_SAMPLES_SPLIT,
+            random_state=42,
+            n_jobs=-1
+        )
+        
+        # Scalers
+        self.price_scaler = StandardScaler()
+        self.volatility_scaler = StandardScaler()
+        self.pattern_scaler = StandardScaler()
+        self.timing_scaler = StandardScaler()
+        
+        # Training data buffers
+        self.training_features = []
+        self.training_prices = []
+        self.training_volatility = []
+        self.training_patterns = []
+        self.training_timing = []
+        
+        # Model status
+        self.models_trained = False
+        self.last_prediction = None
+        self.last_confidence = 0.0
+        self.last_risk_score = 0.5
+        self.last_pattern = None
+        self.last_timing_score = 0.5
+        
+        # Prediction history for accuracy tracking
+        self.prediction_history = deque(maxlen=ML_PREDICTION_HISTORY_SIZE)
+        
+        # Market regime detector
+        self.current_regime = "UNKNOWN"  # TRENDING_UP, TRENDING_DOWN, RANGING
+        self.regime_confidence = 0.0
+        
+        # Adaptive thresholds
+        self.adaptive_min_confidence = ML_MIN_CONFIDENCE
+        self.adaptive_risk_threshold = ML_MAX_RISK_THRESHOLD
+        
+    def extract_features(self, price_hist, volume_hist, orderbook_hist):
+        """Extract comprehensive features for ML models"""
+        if len(price_hist) < ML_FEATURE_WINDOW:
+            return None
+            
+        prices = np.array(list(price_hist)[-ML_FEATURE_WINDOW:])
+        
+        features = []
+        
+        # === PRICE-BASED FEATURES ===
+        features.append(np.mean(prices))
+        features.append(np.std(prices))
+        features.append(np.max(prices))
+        features.append(np.min(prices))
+        features.append(prices[-1])
+        features.append((prices[-1] - prices[0]) / prices[0])  # total return
+        
+        # Price percentiles
+        features.append(np.percentile(prices, 25))
+        features.append(np.percentile(prices, 75))
+        
+        # === MOMENTUM INDICATORS (multiple timeframes) ===
+        for window in ML_MOMENTUM_WINDOWS:
+            if len(prices) >= window * 2:
+                recent_avg = np.mean(prices[-window:])
+                previous_avg = np.mean(prices[-window*2:-window])
+                features.append(recent_avg - previous_avg)
+            else:
+                features.append(0)
+        
+        # === VOLATILITY INDICATORS (multiple timeframes) ===
+        for window in ML_VOLATILITY_WINDOWS:
+            if len(prices) >= window:
+                returns = np.diff(prices[-window:]) / prices[-window:-1]
+                features.append(np.std(returns))
+            else:
+                features.append(0)
+        
+        # === TREND STRENGTH ===
+        if len(prices) >= 3:
+            x = np.arange(len(prices))
+            z = np.polyfit(x, prices, 1)
+            features.append(z[0])  # slope
+            features.append(z[1])  # intercept
+            # R-squared for trend strength
+            p = np.poly1d(z)
+            yhat = p(x)
+            ybar = np.sum(prices) / len(prices)
+            ssreg = np.sum((yhat - ybar)**2)
+            sstot = np.sum((prices - ybar)**2)
+            r_squared = ssreg / sstot if sstot != 0 else 0
+            features.append(r_squared)
+        else:
+            features.extend([0, 0, 0])
+        
+        # === RSI ===
+        if len(prices) >= ML_RSI_PERIOD + 1:
+            deltas = np.diff(prices[-(ML_RSI_PERIOD+1):])
+            gains = deltas[deltas > 0].sum()
+            losses = abs(deltas[deltas < 0].sum())
+            rs = gains / (losses + 1e-10)
+            rsi = 100 - (100 / (1 + rs))
+            features.append(rsi)
+            # RSI momentum (current vs previous)
+            if len(prices) >= ML_RSI_PERIOD * 2 + 1:
+                prev_deltas = np.diff(prices[-(ML_RSI_PERIOD*2+1):-(ML_RSI_PERIOD+1)])
+                prev_gains = prev_deltas[prev_deltas > 0].sum()
+                prev_losses = abs(prev_deltas[prev_deltas < 0].sum())
+                prev_rs = prev_gains / (prev_losses + 1e-10)
+                prev_rsi = 100 - (100 / (1 + prev_rs))
+                features.append(rsi - prev_rsi)
+            else:
+                features.append(0)
+        else:
+            features.extend([50, 0])
+        
+        # === MACD ===
+        if len(prices) >= ML_MACD_SLOW:
+            ema_fast = self._ema(prices, ML_MACD_FAST)
+            ema_slow = self._ema(prices, ML_MACD_SLOW)
+            macd_line = ema_fast - ema_slow
+            features.append(macd_line)
+            # MACD signal line (9-period EMA of MACD)
+            if len(prices) >= ML_MACD_SLOW + 9:
+                # Simplified: use current MACD vs average
+                features.append(macd_line - np.mean([macd_line]))
+            else:
+                features.append(0)
+        else:
+            features.extend([0, 0])
+        
+        # === BOLLINGER BANDS ===
+        if len(prices) >= ML_BOLLINGER_PERIOD:
+            bb_middle = np.mean(prices[-ML_BOLLINGER_PERIOD:])
+            bb_std = np.std(prices[-ML_BOLLINGER_PERIOD:])
+            bb_upper = bb_middle + ML_BOLLINGER_STD * bb_std
+            bb_lower = bb_middle - ML_BOLLINGER_STD * bb_std
+            # Position within bands (0 = lower, 0.5 = middle, 1 = upper)
+            bb_position = (prices[-1] - bb_lower) / (bb_upper - bb_lower) if bb_upper != bb_lower else 0.5
+            features.append(bb_position)
+            features.append(bb_std)  # band width
+        else:
+            features.extend([0.5, 0])
+        
+        # === VOLUME FEATURES ===
+        if len(volume_hist) >= ML_FEATURE_WINDOW and ML_USE_VOLUME_PROFILE:
+            volumes = np.array(list(volume_hist)[-ML_FEATURE_WINDOW:])
+            features.append(np.mean(volumes))
+            features.append(np.std(volumes))
+            features.append(volumes[-1] / (np.mean(volumes) + 1e-10))  # volume ratio
+            # Volume trend
+            if len(volumes) >= 10:
+                recent_vol = np.mean(volumes[-5:])
+                previous_vol = np.mean(volumes[-10:-5])
+                features.append(recent_vol / (previous_vol + 1e-10))
+            else:
+                features.append(1.0)
+        else:
+            features.extend([0, 0, 1, 1.0])
+        
+        # === ORDERBOOK FEATURES ===
+        if len(orderbook_hist) >= 3 and ML_USE_ORDERBOOK_IMBALANCE:
+            recent_ob = list(orderbook_hist)[-3:]
+            bid_volumes = [ob.get('bid_volume', 0) for ob in recent_ob]
+            ask_volumes = [ob.get('ask_volume', 0) for ob in recent_ob]
+            avg_bid = np.mean(bid_volumes)
+            avg_ask = np.mean(ask_volumes)
+            features.append(avg_bid)
+            features.append(avg_ask)
+            # Bid-ask imbalance ratio
+            imbalance = (avg_bid - avg_ask) / (avg_bid + avg_ask + 1e-10)
+            features.append(imbalance)
+            # Imbalance trend
+            if len(orderbook_hist) >= 6:
+                older_ob = list(orderbook_hist)[-6:-3]
+                older_bid = np.mean([ob.get('bid_volume', 0) for ob in older_ob])
+                older_ask = np.mean([ob.get('ask_volume', 0) for ob in older_ob])
+                older_imbalance = (older_bid - older_ask) / (older_bid + older_ask + 1e-10)
+                features.append(imbalance - older_imbalance)
+            else:
+                features.append(0)
+        else:
+            features.extend([0, 0, 0, 0])
+        
+        return np.array(features)
+    
+    def _ema(self, data, period):
+        """Calculate Exponential Moving Average"""
+        if len(data) < period:
+            return np.mean(data)
+        multiplier = 2 / (period + 1)
+        ema = np.mean(data[:period])
+        for price in data[period:]:
+            ema = (price - ema) * multiplier + ema
+        return ema
+    
+    def detect_market_regime(self, price_hist):
+        """Detect if market is trending or ranging"""
+        if not ML_DETECT_REGIME_CHANGE or len(price_hist) < 50:
+            return "UNKNOWN", 0.0
+        
+        prices = np.array(list(price_hist)[-50:])
+        
+        # Calculate trend strength using linear regression
+        x = np.arange(len(prices))
+        z = np.polyfit(x, prices, 1)
+        slope = z[0]
+        p = np.poly1d(z)
+        yhat = p(x)
+        ybar = np.sum(prices) / len(prices)
+        ssreg = np.sum((yhat - ybar)**2)
+        sstot = np.sum((prices - ybar)**2)
+        r_squared = ssreg / sstot if sstot != 0 else 0
+        
+        # Calculate volatility
+        returns = np.diff(prices) / prices[:-1]
+        volatility = np.std(returns)
+        
+        # Determine regime
+        if r_squared > 0.6:  # Strong trend
+            if slope > 0:
+                regime = "TRENDING_UP"
+            else:
+                regime = "TRENDING_DOWN"
+            confidence = r_squared
+        elif r_squared < 0.3 and volatility < 0.02:  # Low trend, low volatility = ranging
+            regime = "RANGING"
+            confidence = 1 - r_squared
+        else:
+            regime = "TRANSITIONING"
+            confidence = 0.5
+        
+        return regime, confidence
+    
+    def ensemble_vote(self, features, current_price, zone_status):
+        """Combine multiple ML signals with weighted voting"""
+        if not ML_USE_ENSEMBLE_VOTING or not self.models_trained or features is None:
+            return None, 0.0
+        
+        votes = {'buy': 0.0, 'sell': 0.0, 'hold': 0.0}
+        
+        # Pattern classifier vote
+        pattern, pattern_conf = self.predict_pattern(features)
+        if pattern == 1:  # BUY
+            votes['buy'] += ML_PATTERN_WEIGHT * pattern_conf
+        elif pattern == 2:  # SELL
+            votes['sell'] += ML_PATTERN_WEIGHT * pattern_conf
+        else:  # HOLD
+            votes['hold'] += ML_PATTERN_WEIGHT * pattern_conf
+        
+        # Price prediction vote
+        pred_price = self.predict_price(features)
+        if pred_price:
+            price_change = (pred_price - current_price) / current_price
+            if price_change > 0.01:  # Predicted 1%+ rise
+                votes['buy'] += ML_PRICE_PRED_WEIGHT * min(abs(price_change) * 20, 1.0)
+            elif price_change < -0.01:  # Predicted 1%+ fall
+                votes['sell'] += ML_PRICE_PRED_WEIGHT * min(abs(price_change) * 20, 1.0)
+            else:
+                votes['hold'] += ML_PRICE_PRED_WEIGHT
+        
+        # Timing scorer vote
+        timing = self.score_timing(features)
+        if timing > 0.7:
+            # Good timing enhances existing votes
+            if zone_status == "BUY":
+                votes['buy'] += ML_TIMING_WEIGHT * timing
+            elif zone_status == "SELL":
+                votes['sell'] += ML_TIMING_WEIGHT * timing
+        else:
+            votes['hold'] += ML_TIMING_WEIGHT * (1 - timing)
+        
+        # Risk score vote
+        risk = self.calculate_risk_score(features, current_price, zone_status)
+        if risk < 0.3:  # Low risk
+            # Enhances buy signals in low risk
+            if zone_status in ["BUY", "NEUTRAL"]:
+                votes['buy'] += ML_RISK_WEIGHT * (1 - risk)
+        elif risk > 0.7:  # High risk
+            # Suggests caution/sell
+            votes['sell'] += ML_RISK_WEIGHT * risk
+            votes['hold'] += ML_RISK_WEIGHT * risk * 0.5
+        
+        # Determine winner
+        winner = max(votes, key=votes.get)
+        confidence = votes[winner] / sum(votes.values()) if sum(votes.values()) > 0 else 0.0
+        
+        return winner, confidence
+    
+    def update_adaptive_thresholds(self, prediction_accuracy):
+        """Adjust thresholds based on recent prediction accuracy"""
+        if not ML_ADAPTIVE_THRESHOLDS:
+            return
+        
+        # If predictions are accurate, become more aggressive
+        if prediction_accuracy > 0.7:
+            self.adaptive_min_confidence = max(ML_MIN_CONFIDENCE - 0.05, 0.50)
+            self.adaptive_risk_threshold = min(ML_MAX_RISK_THRESHOLD + 0.05, 0.80)
+        # If predictions are poor, become more conservative
+        elif prediction_accuracy < 0.5:
+            self.adaptive_min_confidence = min(ML_MIN_CONFIDENCE + 0.10, 0.75)
+            self.adaptive_risk_threshold = max(ML_MAX_RISK_THRESHOLD - 0.10, 0.55)
+        
+        if ML_VERBOSE_LOGGING:
+            print(f"{COLOR_PURPLE}[ML] Adaptive thresholds updated: min_conf={self.adaptive_min_confidence:.2f}, max_risk={self.adaptive_risk_threshold:.2f}{COLOR_RESET}")
+    
+    def track_prediction_accuracy(self, actual_price):
+        """Track prediction accuracy for adaptive learning"""
+        if not ML_SAVE_PREDICTIONS or len(self.prediction_history) == 0:
+            return 0.0
+        
+        # Check predictions that should have materialized by now
+        correct = 0
+        total = 0
+        
+        for pred_record in self.prediction_history:
+            if pred_record['mature']:
+                continue  # Already evaluated
+            
+            # Check if enough time has passed
+            ticks_elapsed = ml_tick_count - pred_record['tick']
+            if ticks_elapsed >= ML_PRICE_PRED_HORIZON:
+                pred_record['mature'] = True
+                pred_price = pred_record['predicted_price']
+                direction_correct = False
+                
+                if pred_price > pred_record['current_price'] * 1.001:  # Predicted rise
+                    if actual_price > pred_record['current_price']:
+                        direction_correct = True
+                elif pred_price < pred_record['current_price'] * 0.999:  # Predicted fall
+                    if actual_price < pred_record['current_price']:
+                        direction_correct = True
+                
+                if direction_correct:
+                    correct += 1
+                total += 1
+        
+        if total > 0:
+            accuracy = correct / total
+            self.update_adaptive_thresholds(accuracy)
+            return accuracy
+        
+        return 0.0
+    
+    def train_initial_models(self, historical_data):
+        """Train models on historical data for baseline"""
+        if len(historical_data) < ML_FEATURE_WINDOW + ML_PRICE_PRED_HORIZON:
+            print(f"{COLOR_PURPLE}[ML] Insufficient historical data for training{COLOR_RESET}")
+            return False
+            
+        print(f"{COLOR_PURPLE}[ML] Training models on {len(historical_data)} historical candles...{COLOR_RESET}")
+        
+        features_list = []
+        price_targets = []
+        volatility_targets = []
+        pattern_targets = []
+        
+        for i in range(ML_FEATURE_WINDOW, len(historical_data) - ML_PRICE_PRED_HORIZON):
+            window = historical_data[i-ML_FEATURE_WINDOW:i]
+            prices = [x['close'] for x in window]
+            
+            # Mock volume and orderbook for historical data
+            volumes = [1.0] * len(prices)
+            orderbooks = [{'bid_volume': 1.0, 'ask_volume': 1.0}] * len(prices)
+            
+            features = self.extract_features(
+                deque(prices, maxlen=ML_FEATURE_WINDOW),
+                deque(volumes, maxlen=ML_FEATURE_WINDOW),
+                deque(orderbooks, maxlen=3)
+            )
+            
+            if features is not None:
+                features_list.append(features)
+                
+                # Price target (future price)
+                future_price = historical_data[i + ML_PRICE_PRED_HORIZON]['close']
+                price_targets.append(future_price)
+                
+                # Volatility target (future volatility)
+                future_window = historical_data[i:i+ML_PRICE_PRED_HORIZON+1]
+                future_prices = [x['close'] for x in future_window]
+                future_returns = np.diff(future_prices) / future_prices[:-1]
+                volatility_targets.append(np.std(future_returns))
+                
+                # Pattern target (0=hold, 1=buy, 2=sell)
+                current_price = prices[-1]
+                if future_price > current_price * 1.005:
+                    pattern_targets.append(1)  # buy signal
+                elif future_price < current_price * 0.995:
+                    pattern_targets.append(2)  # sell signal
+                else:
+                    pattern_targets.append(0)  # hold
+        
+        if len(features_list) < 10:
+            print(f"{COLOR_PURPLE}[ML] Insufficient feature samples for training{COLOR_RESET}")
+            return False
+        
+        X = np.array(features_list)
+        
+        # Train price predictor
+        X_scaled = self.price_scaler.fit_transform(X)
+        self.price_predictor.fit(X_scaled, price_targets)
+        pred_prices = self.price_predictor.predict(X_scaled)
+        rmse = np.sqrt(mean_squared_error(price_targets, pred_prices))
+        print(f"{COLOR_PURPLE}[ML] Price predictor trained. RMSE: ${rmse:.4f}{COLOR_RESET}")
+        
+        # Train volatility predictor
+        X_scaled = self.volatility_scaler.fit_transform(X)
+        self.volatility_predictor.fit(X_scaled, volatility_targets)
+        print(f"{COLOR_PURPLE}[ML] Volatility predictor trained{COLOR_RESET}")
+        
+        # Train pattern classifier
+        X_scaled = self.pattern_scaler.fit_transform(X)
+        self.pattern_classifier.fit(X_scaled, pattern_targets)
+        accuracy = self.pattern_classifier.score(X_scaled, pattern_targets)
+        print(f"{COLOR_PURPLE}[ML] Pattern classifier trained. Accuracy: {accuracy*100:.1f}%{COLOR_RESET}")
+        
+        # Train timing scorer (use future return as target)
+        timing_targets = [(price_targets[i] - X[i][4]) / X[i][4] for i in range(len(X))]
+        X_scaled = self.timing_scaler.fit_transform(X)
+        self.timing_scorer.fit(X_scaled, timing_targets)
+        print(f"{COLOR_PURPLE}[ML] Timing scorer trained{COLOR_RESET}")
+        
+        self.models_trained = True
+        return True
+    
+    def update_models_online(self, features, actual_price, actual_volatility, actual_pattern):
+        """Update models with new live data"""
+        self.training_features.append(features)
+        self.training_prices.append(actual_price)
+        self.training_volatility.append(actual_volatility)
+        self.training_patterns.append(actual_pattern)
+        
+        # Keep only recent samples for online learning (configured buffer)
+        if len(self.training_features) > ML_ONLINE_BUFFER_SIZE:
+            self.training_features = self.training_features[-ML_ONLINE_BUFFER_SIZE:]
+            self.training_prices = self.training_prices[-ML_ONLINE_BUFFER_SIZE:]
+            self.training_volatility = self.training_volatility[-ML_ONLINE_BUFFER_SIZE:]
+            self.training_patterns = self.training_patterns[-ML_ONLINE_BUFFER_SIZE:]
+    
+    def retrain_models(self):
+        """Retrain all models with accumulated online data"""
+        if len(self.training_features) < ML_MIN_TRAIN_SAMPLES:
+            if ML_VERBOSE_LOGGING:
+                print(f"{COLOR_PURPLE}[ML] Skipping retrain - only {len(self.training_features)} samples (need {ML_MIN_TRAIN_SAMPLES}){COLOR_RESET}")
+            return
+            
+        print(f"{COLOR_PURPLE}[ML] Retraining models with {len(self.training_features)} new samples...{COLOR_RESET}")
+        
+        X = np.array(self.training_features)
+        
+        try:
+            # Retrain price predictor
+            X_scaled = self.price_scaler.transform(X)
+            self.price_predictor.fit(X_scaled, self.training_prices)
+            
+            # Retrain volatility predictor
+            X_scaled = self.volatility_scaler.transform(X)
+            self.volatility_predictor.fit(X_scaled, self.training_volatility)
+            
+            # Retrain pattern classifier
+            X_scaled = self.pattern_scaler.transform(X)
+            self.pattern_classifier.fit(X_scaled, self.training_patterns)
+            
+            # Retrain timing scorer
+            timing_targets = [(self.training_prices[i] - X[i][4]) / X[i][4] for i in range(len(X))]
+            X_scaled = self.timing_scaler.transform(X)
+            self.timing_scorer.fit(X_scaled, timing_targets)
+            
+            print(f"{COLOR_PURPLE}[ML] Models retrained successfully{COLOR_RESET}")
+            
+            # Log feature importance if enabled
+            if ML_LOG_FEATURE_IMPORTANCE:
+                self._log_feature_importance()
+                
+        except Exception as e:
+            logging.error(f"[ML] Retraining error: {str(e)}")
+    
+    def _log_feature_importance(self):
+        """Log feature importance from random forest models"""
+        try:
+            price_importance = self.price_predictor.feature_importances_
+            top_5_idx = np.argsort(price_importance)[-5:]
+            print(f"{COLOR_PURPLE}[ML] Top 5 Price Prediction Features: {top_5_idx} with importance {price_importance[top_5_idx]}{COLOR_RESET}")
+        except Exception as e:
+            logging.warning(f"[ML] Could not log feature importance: {str(e)}")
+    
+    def predict_price(self, features):
+        """Predict future price"""
+        if not self.models_trained or features is None:
+            return None
+        try:
+            X = features.reshape(1, -1)
+            X_scaled = self.price_scaler.transform(X)
+            prediction = self.price_predictor.predict(X_scaled)[0]
+            return float(prediction)
+        except Exception as e:
+            logging.error(f"[ML] Price prediction error: {str(e)}")
+            return None
+    
+    def predict_volatility(self, features):
+        """Predict future volatility"""
+        if not self.models_trained or features is None:
+            return None
+        try:
+            X = features.reshape(1, -1)
+            X_scaled = self.volatility_scaler.transform(X)
+            prediction = self.volatility_predictor.predict(X_scaled)[0]
+            return float(prediction)
+        except Exception as e:
+            logging.error(f"[ML] Volatility prediction error: {str(e)}")
+            return None
+    
+    def predict_pattern(self, features):
+        """Predict buy/sell/hold pattern with confidence"""
+        if not self.models_trained or features is None:
+            return None, 0.0
+        try:
+            X = features.reshape(1, -1)
+            X_scaled = self.pattern_scaler.transform(X)
+            prediction = self.pattern_classifier.predict(X_scaled)[0]
+            probabilities = self.pattern_classifier.predict_proba(X_scaled)[0]
+            confidence = np.max(probabilities)
+            return int(prediction), float(confidence)
+        except Exception as e:
+            logging.error(f"[ML] Pattern prediction error: {str(e)}")
+            return None, 0.0
+    
+    def score_timing(self, features):
+        """Score optimal timing for trade execution (higher = better)"""
+        if not self.models_trained or features is None:
+            return 0.5
+        try:
+            X = features.reshape(1, -1)
+            X_scaled = self.timing_scaler.transform(X)
+            score = self.timing_scorer.predict(X_scaled)[0]
+            # Normalize to 0-1 range
+            normalized = 1 / (1 + np.exp(-score * 10))  # sigmoid
+            return float(normalized)
+        except Exception as e:
+            logging.error(f"[ML] Timing score error: {str(e)}")
+            return 0.5
+    
+    def calculate_risk_score(self, features, current_price, zone_status):
+        """Calculate comprehensive risk score (0-1, lower = safer)"""
+        if not self.models_trained or features is None:
+            return 0.5
+            
+        try:
+            # Predict volatility
+            pred_volatility = self.predict_volatility(features)
+            if pred_volatility is None:
+                volatility_risk = 0.5
+            else:
+                # High volatility = high risk
+                volatility_risk = min(pred_volatility * 100, 1.0)
+            
+            # Predict price direction
+            pred_price = self.predict_price(features)
+            if pred_price is None:
+                direction_risk = 0.5
+            else:
+                price_change = abs(pred_price - current_price) / current_price
+                direction_risk = min(price_change * 10, 1.0)
+            
+            # Pattern confidence (low confidence = high risk)
+            pattern, confidence = self.predict_pattern(features)
+            confidence_risk = 1.0 - confidence
+            
+            # Zone risk (OUTSIDE = high risk)
+            if zone_status == "OUTSIDE":
+                zone_risk = 0.8
+            elif zone_status == "NEUTRAL":
+                zone_risk = 0.5
+            else:
+                zone_risk = 0.2
+            
+            # Weighted combination
+            risk_score = (
+                volatility_risk * 0.3 +
+                direction_risk * 0.2 +
+                confidence_risk * 0.3 +
+                zone_risk * 0.2
+            )
+            
+            return float(np.clip(risk_score, 0.0, 1.0))
+            
+        except Exception as e:
+            logging.error(f"[ML] Risk score error: {str(e)}")
+            return 0.5
+
+
+# Initialize ML enhancer
+ml_enhancer = MLTradingEnhancer() if ML_ENABLED else None
+
+
+# ----------------- API / Utilities (unchanged) -----------------
+def get_valid_kraken_pair(pair):
+    variations = [
+        pair,
+        f"X{pair}",
+        f"{pair}Z",
+        f"X{pair}Z",
+        pair.replace("USD", "ZUSD"),
+        f"X{pair.replace('USD', '')}ZUSD"
+    ]
+    for variation in variations:
+        try:
+            response = requests.get(f'{API_URL}/{API_VERSION}/public/Ticker?pair={variation}', timeout=5)
+            data = response.json()
+            if 'error' not in data or not data['error']:
+                if DEBUG:
+                    print(f"{COLOR_GREEN}Using pair format: {variation}{COLOR_RESET}")
+                return variation
+        except Exception as e:
+            logging.warning(f"Pair validation error: {str(e)}")
+            continue
+    print(f"{COLOR_RED}Could not validate pair format, using {pair}{COLOR_RESET}")
+    return pair
+
+
+def get_ohlc(pair, interval, lookback):
+    since = int((time.time() - lookback * interval * 60) // 1)
+    params = {'pair': pair, 'interval': interval, 'since': since}
+    try:
+        response = requests.get(f"{API_URL}/{API_VERSION}/public/OHLC", params=params, timeout=10)
+        data = response.json()
+        if 'error' in data and data['error']:
+            logging.error(f"Kraken OHLC error: {data['error']}")
+            return []
+        pair_key = list(data['result'].keys())[0]
+        ohlc_data = data['result'][pair_key]
+        results = []
+        for row in ohlc_data:
+            try:
+                results.append({
+                    'timestamp': float(row[0]),
+                    'open': float(row[1]),
+                    'high': float(row[2]),
+                    'low': float(row[3]),
+                    'close': float(row[4]),
+                    'volume': float(row[6])
+                })
+            except Exception as e:
+                logging.warning(f"OHLC row parsing error: {str(e)}")
+        return results
+    except Exception as e:
+        logging.error(f"OHLC Error: {str(e)}")
+        return []
+
+
+def get_ticker():
+    try:
+        response = requests.get(f'{API_URL}/{API_VERSION}/public/Ticker?pair={KRAKEN_PAIR}', timeout=5)
+        data = response.json()
+        if 'error' in data and data['error']:
+            logging.error(f"Ticker error: {data['error']}")
+            return None
+        valid_pair = list(data['result'].keys())[0]
+        ticker = data['result'][valid_pair]
+        last_price = float(ticker['c'][0])
+        return last_price
+    except Exception as e:
+        logging.error(f"Ticker Error: {str(e)}")
+        return None
+
+
+def get_order_book(pair, count=ORDERBOOK_DEPTH_LEVELS):
+    try:
+        resp = requests.get(f"{API_URL}/{API_VERSION}/public/Depth", params={'pair': pair, 'count': count}, timeout=10)
+        data = resp.json()
+        if 'error' in data and data['error']:
+            logging.error(f"Depth error: {data['error']}")
+            return None
+        pair_key = list(data['result'].keys())[0]
+        ob = data['result'][pair_key]
+        bids = [(float(p), float(v)) for p, v, *_ in ob.get('bids', [])]
+        asks = [(float(p), float(v)) for p, v, *_ in ob.get('asks', [])]
+        
+        # Calculate volumes for ML
+        bid_volume = sum([v for _, v in bids])
+        ask_volume = sum([v for _, v in asks])
+        
+        return {
+            'bids': bids,
+            'asks': asks,
+            'bid_volume': bid_volume,
+            'ask_volume': ask_volume
+        }
+    except Exception as e:
+        logging.error(f"Order book fetch error: {str(e)}")
+        return None
+
+
+def simulate_market_fill(side, base_amount, order_book):
+    if order_book is None:
+        return False, None, None, 0
+
+    levels = order_book['asks'] if side == 'buy' else order_book['bids']
+    cum_base = 0.0
+    used_quote = 0.0
+    consumed = 0
+    for price, available in levels:
+        take = min(available, base_amount - cum_base)
+        used_quote += take * price
+        cum_base += take
+        consumed += 1
+        if cum_base >= base_amount - 1e-12:
+            break
+    if cum_base + 1e-12 < base_amount:
+        return False, None, None, consumed
+    executed_avg = used_quote / base_amount
+    return True, executed_avg, used_quote, consumed
+
+
+def estimate_slippage_and_liquidity(side, price_ref, base_amount):
+    ob = get_order_book(KRAKEN_PAIR, count=ORDERBOOK_DEPTH_LEVELS)
+    if ob is None:
+        return {'filled': False, 'reason': 'no_orderbook'}
+
+    side_name = 'buy' if side == 'buy' else 'sell'
+    filled, exec_price, used_quote, consumed = simulate_market_fill(side_name, base_amount, ob)
+    available_base = sum([v for _, v in (ob['asks'] if side == 'buy' else ob['bids'])])
+    if not filled:
+        return {'filled': False, 'reason': 'insufficient_depth', 'available_base': available_base}
+
+    if price_ref is None or price_ref == 0:
+        slippage = 0.0
+    else:
+        slippage = (exec_price - price_ref) / price_ref if side == 'buy' else (price_ref - exec_price) / price_ref
+
+    return {
+        'filled': True,
+        'exec_price': float(exec_price),
+        'slippage_pct': float(slippage),
+        'levels_consumed': consumed,
+        'available_base': available_base
+    }
+
+
+def kraken_request(uri_path, data):
+    import hashlib, hmac, base64, urllib.parse
+    headers = {}
+    headers['API-Key'] = API_KEY
+    nonce = str(int(time.time() * 1000))
+    data['nonce'] = nonce
+    postdata = urllib.parse.urlencode(data)
+    encoded = (nonce + postdata).encode()
+    message = uri_path.encode() + hashlib.sha256(encoded).digest()
+    api_secret = API_SECRET
+    if len(api_secret) % 4 != 0:
+        api_secret += '=' * (4 - len(api_secret) % 4)
+    try:
+        secret = base64.b64decode(api_secret)
+        mac = hmac.new(secret, message, hashlib.sha512)
+        headers['API-Sign'] = base64.b64encode(mac.digest()).decode()
+        response = requests.post(API_URL + uri_path, data=data, headers=headers, timeout=10)
+        try:
+            return response.json()
+        except Exception:
+            return {'error': [f'Non-JSON response: {response.text}']}
+    except Exception as e:
+        logging.error(f"API Error: {str(e)}")
+        return {'error': [str(e)]}
+
+
+def place_order(order_type, amount, price):
+    amount = round(amount, BOND_DECIMALS)
+    data = {
+        'ordertype': 'market',
+        'type': order_type,
+        'volume': amount,
+        'pair': KRAKEN_PAIR,
+        'validate': 'false'
+    }
+    print(f"{COLOR_YELLOW}Placing {order_type} order for {amount} at ${price:.4f}{COLOR_RESET}")
+    try:
+        result = kraken_request(f'/{API_VERSION}/private/AddOrder', data)
+        logging.info(f"Order result: {result}")
+        if 'error' in result and result['error']:
+            logging.error(f"Order error details: {result['error']}")
+        return result
+    except Exception as e:
+        logging.error(f"Order placement exception: {str(e)}")
+        return {'error': [str(e)]}
+
+
+def calculate_precise_profit(entry, exit, amount):
+    if entry is None or exit is None or amount is None:
+        logging.warning("Profit calculation with None value.")
+        return None
+    buy_fee = amount * entry * FEE_RATE
+    effective_buy = amount * (1 - FEE_RATE)
+    net_proceeds = effective_buy * exit * (1 - FEE_RATE)
+    return net_proceeds - (amount * entry - buy_fee)
+
+
+def dynamic_position_size(price):
+    if price is None or price <= 0:
+        logging.warning("Dynamic position size received invalid price.")
+        return 0.0
+    return INVESTMENT_AMOUNT / price
+
+
+def get_trend(ohlc_data, window=10):
+    try:
+        closes = [row['close'] for row in ohlc_data[-window:] if row.get('close') is not None]
+    except Exception:
+        return None
+    if len(closes) < window:
+        return None
+    return 'up' if closes[-1] > np.mean(closes) else 'down'
+
+
+def config_monitor():
+    global INVESTMENT_AMOUNT, TRADING_PAIR, KRAKEN_PAIR
+    print(f"\n{COLOR_MAGENTA}Configuration Active!{COLOR_RESET}")
+    print(f"{COLOR_MAGENTA}Commands: 'b'=buy now, 's'=sell now, 'i'=investment, 't'=trading pair, 'c'=show config, 'q'=quit{COLOR_RESET}")
+    while True:
+        try:
+            cmd = input(f"{COLOR_MAGENTA}Config> {COLOR_RESET}").strip().lower()
+            if cmd == 'q':
+                print(f"{COLOR_MAGENTA}Exiting config monitor{COLOR_RESET}")
+                break
+            elif cmd == 'b':
+                manual_trigger_queue.put("BUY")
+                print(f"{COLOR_GREEN}Manual BUY trigger set!{COLOR_RESET}")
+            elif cmd == 's':
+                manual_trigger_queue.put("SELL")
+                print(f"{COLOR_GREEN}Manual SELL trigger set!{COLOR_RESET}")
+            elif cmd == 'i':
+                try:
+                    new_investment = float(input("Enter new investment amount ($): "))
+                    if new_investment >= 1:
+                        INVESTMENT_AMOUNT = new_investment
+                        print(f"{COLOR_GREEN}Investment amount updated to ${new_investment:.2f}{COLOR_RESET}")
+                except ValueError:
+                    print(f"{COLOR_RED}Invalid input{COLOR_RESET}")
+            elif cmd == 't':
+                new_pair = input("Enter new trading pair (e.g., LTCUSD): ").strip().upper()
+                if new_pair:
+                    TRADING_PAIR = new_pair
+                    KRAKEN_PAIR = get_valid_kraken_pair(new_pair)
+                    print(f"{COLOR_GREEN}Trading pair updated to {TRADING_PAIR}{COLOR_RESET}")
+                    print(f"{COLOR_GREEN}Kraken pair format: {KRAKEN_PAIR}{COLOR_RESET}")
+                else:
+                    print(f"{COLOR_RED}Invalid input{COLOR_RESET}")
+            elif cmd == 'c':
+                print(f"\n{COLOR_MAGENTA}Current Configuration:{COLOR_RESET}")
+                print(f"Investment Amount: ${INVESTMENT_AMOUNT:.2f}")
+                print(f"Trading Pair: {TRADING_PAIR}")
+                print(f"Kraken Format: {KRAKEN_PAIR}")
+                print(f"Fee Rate: {FEE_RATE*100:.4f}%")
+                print(f"ML Enabled: {ML_ENABLED}")
+                if ML_ENABLED and ml_enhancer:
+                    print(f"ML Models Trained: {ml_enhancer.models_trained}")
+            else:
+                print(f"{COLOR_YELLOW}Unknown command{COLOR_RESET}")
+        except Exception as e:
+            logging.error(f"Config Error: {str(e)}")
+            print(f"{COLOR_RED}Config Error: {str(e)}{COLOR_RESET}")
+
+
+# ========== Zone Machine (unchanged structure) ==========
+class BestValueZoneMachine4Dec:
+    def __init__(self, pair):
+        self.pair = pair
+        self.zone_initialized = False
+        self.buy_zone = None
+        self.neutral_zone = None
+        self.sell_zone = None
+        self.median = None
+        self.zone_set_time = None
+        self.in_sell_zone = False
+        self.sell_highs = []
+        self.sell_lows = []
+        self.best_sell_price = None
+        self.max_avg_high_seen = None
+        self.in_buy_zone = False
+        self.buy_highs = []
+        self.buy_lows = []
+        self.best_buy_price = None
+        self.min_avg_low_seen = None
+
+    def initialize_zones(self, use_bollinger=False):
+        print(f"{COLOR_CYAN}Calculating Zones...{COLOR_RESET}")
+        ohlc_data = get_ohlc(self.pair, interval=1, lookback=MEDIAN_LOOKBACK)
+        if not ohlc_data or len(ohlc_data) < 10:
+            print(f"{COLOR_RED}Insufficient OHLC data for zone calculation!{COLOR_RESET}")
+            return False
+
+        if use_bollinger:
+            closes = np.array([row['close'] for row in ohlc_data[-20:] if row.get('close') is not None])
+            if len(closes) < 20:
+                print(f"{COLOR_RED}Insufficient data for Bollinger zones!{COLOR_RESET}")
+                return False
+            sma = np.mean(closes)
+            std = np.std(closes)
+            upper = sma + 2 * std
+            lower = sma - 2 * std
+            self.median = float(np.mean([lower, upper]))
+            neutral_lower = round(self.median - ZONE_BUFFER / 2, 4)
+            neutral_upper = round(self.median + ZONE_BUFFER / 2, 4)
+            self.neutral_zone = (neutral_lower, neutral_upper)
+            self.buy_zone = (round(lower, 4), neutral_lower)
+            self.sell_zone = (neutral_upper, round(upper, 4))
+        else:
+            highs = np.array([x['high'] for x in ohlc_data])
+            lows = np.array([x['low'] for x in ohlc_data])
+            self.median = float((np.median(highs) + np.median(lows)) / 2)
+            neutral_lower = round(self.median - ZONE_BUFFER / 2, 4)
+            neutral_upper = round(self.median + ZONE_BUFFER / 2, 4)
+            self.neutral_zone = (neutral_lower, neutral_upper)
+            self.buy_zone = (round(neutral_lower - BUY_ZONE_EXTRA, 4), neutral_lower)
+            self.sell_zone = (neutral_upper, round(neutral_upper + SELL_ZONE_EXTRA, 4))
+
+        self.zone_initialized = True
+        self.zone_set_time = time.time()
+        self.sell_highs = []
+        self.sell_lows = []
+        self.buy_highs = []
+        self.buy_lows = []
+        self.in_sell_zone = False
+        self.in_buy_zone = False
+        self.best_sell_price = None
+        self.best_buy_price = None
+        self.max_avg_high_seen = None
+        self.min_avg_low_seen = None
+
+        print(f"{COLOR_MAGENTA}=== ZONES INITIALIZED ==={COLOR_RESET}")
+        print(f"Median:      ${self.median:.4f}")
+        print(f"Buy Zone:    [${self.buy_zone[0]:.4f} - ${self.buy_zone[1]:.4f}]")
+        print(f"Neutral Zone:[${self.neutral_zone[0]:.4f} - ${self.neutral_zone[1]:.4f}]")
+        print(f"Sell Zone:   [${self.sell_zone[0]:.4f} - ${self.sell_zone[1]:.4f}]")
+        print(f"{COLOR_MAGENTA}========================={COLOR_RESET}")
+
+    def price_zone(self, price):
+        if price is None:
+            return "INVALID"
+        if self.buy_zone and self.buy_zone[0] <= price < self.buy_zone[1]:
+            return "BUY"
+        elif self.neutral_zone and self.neutral_zone[0] <= price <= self.neutral_zone[1]:
+            return "NEUTRAL"
+        elif self.sell_zone and self.sell_zone[0] < price <= self.sell_zone[1]:
+            return "SELL"
+        else:
+            return "OUTSIDE"
+
+    def zones_expired(self, price):
+        global outside_zone_since
+        zone_status = self.price_zone(price)
+        now = time.time()
+        if zone_status == "OUTSIDE":
+            if outside_zone_since is None:
+                outside_zone_since = now
+            elif now - outside_zone_since > ZONE_RESET_HOLD_TIME:
+                print(f"{COLOR_YELLOW}Price outside all zones for >{ZONE_RESET_HOLD_TIME} seconds. Resetting zones...{COLOR_RESET}")
+                outside_zone_since = None
+                return True
+        else:
+            outside_zone_since = None
+        return False
+
+    def track_best_sell(self, price, entry_price, token_amount):
+        if price is None:
+            return None
+
+        zone = self.price_zone(price)
+
+        if zone == "SELL":
+            self.sell_highs.append(price)
+            self.sell_lows.append(price)
+            if not self.in_sell_zone:
+                self.in_sell_zone = True
+                self.best_sell_price = price
+                self.max_avg_high_seen = np.mean(self.sell_highs) if self.sell_highs else price
+                if DEBUG:
+                    print(f"{COLOR_BLUE}Entered SELL zone. Tracking highs. initial avg_high={self.max_avg_high_seen:.4f}{COLOR_RESET}")
+            else:
+                if price > self.best_sell_price:
+                    self.best_sell_price = price
+                avg_high = np.mean(self.sell_highs) if self.sell_highs else self.best_sell_price
+                if self.max_avg_high_seen is None or avg_high > self.max_avg_high_seen:
+                    self.max_avg_high_seen = avg_high
+                    if DEBUG:
+                        print(f"{COLOR_BLUE}New max_avg_high_seen: ${self.max_avg_high_seen:.4f}{COLOR_RESET}")
+
+            if SELL_AT_HIGHEST_AVERAGE and self.max_avg_high_seen is not None:
+                lower_thr = self.max_avg_high_seen * (1.0 - ENTRY_RANGE_PCT)
+                upper_thr = self.max_avg_high_seen * (1.0 + ENTRY_RANGE_PCT)
+                if lower_thr <= price <= upper_thr:
+                    if DEBUG:
+                        print(f"{COLOR_GREEN}SELL range condition met: price ${price:.4f} in [{lower_thr:.4f}, {upper_thr:.4f}]. Signaling sell at ref ${self.max_avg_high_seen:.4f}{COLOR_RESET}")
+                    return float(self.max_avg_high_seen)
+            return None
+
+        else:
+            if self.in_sell_zone:
+                avg_high = np.mean(self.sell_highs) if self.sell_highs else None
+                avg_low = np.mean(self.sell_lows) if self.sell_lows else None
+                best_profit = calculate_precise_profit(entry_price, self.best_sell_price, token_amount)
+                if DEBUG:
+                    print(f"{COLOR_GREEN}Exited SELL zone. Best SELL price: ${self.best_sell_price:.4f}, Avg High: {avg_high:.4f}, Avg Low: {avg_low:.4f}, Best Profit: ${best_profit:.4f}{COLOR_RESET}")
+                self.in_sell_zone = False
+                self.sell_highs = []
+                self.sell_lows = []
+                tmp = self.max_avg_high_seen
+                self.max_avg_high_seen = None
+                if best_profit is not None and best_profit >= MIN_PROFIT:
+                    return float(self.best_sell_price)
+                else:
+                    if DEBUG:
+                        print(f"{COLOR_YELLOW}Exit-based sell condition not met (profit {best_profit}).{COLOR_RESET}")
+            return None
+
+    def track_best_buy(self, price):
+        if price is None:
+            return None
+
+        zone = self.price_zone(price)
+
+        if zone == "BUY":
+            self.buy_highs.append(price)
+            self.buy_lows.append(price)
+            if not self.in_buy_zone:
+                self.in_buy_zone = True
+                self.best_buy_price = price
+                self.min_avg_low_seen = np.mean(self.buy_lows) if self.buy_lows else price
+                if DEBUG:
+                    print(f"{COLOR_BLUE}Entered BUY zone. Tracking lows. initial avg_low={self.min_avg_low_seen:.4f}{COLOR_RESET}")
+            else:
+                if price < self.best_buy_price:
+                    self.best_buy_price = price
+                avg_low = np.mean(self.buy_lows) if self.buy_lows else self.best_buy_price
+                if self.min_avg_low_seen is None or avg_low < self.min_avg_low_seen:
+                    self.min_avg_low_seen = avg_low
+                    if DEBUG:
+                        print(f"{COLOR_BLUE}New min_avg_low_seen: ${self.min_avg_low_seen:.4f}{COLOR_RESET}")
+
+            if BUY_AT_LOWEST_AVERAGE and self.min_avg_low_seen is not None:
+                lower_thr = self.min_avg_low_seen * (1.0 - ENTRY_RANGE_PCT)
+                upper_thr = self.min_avg_low_seen * (1.0 + ENTRY_RANGE_PCT)
+                if lower_thr <= price <= upper_thr:
+                    if DEBUG:
+                        print(f"{COLOR_GREEN}BUY range condition met: price ${price:.4f} in [{lower_thr:.4f}, {upper_thr:.4f}]. Signaling buy at ref ${self.min_avg_low_seen:.4f}{COLOR_RESET}")
+                    return float(self.min_avg_low_seen)
+            return None
+
+        else:
+            if self.in_buy_zone:
+                avg_high = np.mean(self.buy_highs) if self.buy_highs else None
+                avg_low = np.mean(self.buy_lows) if self.buy_lows else None
+                if DEBUG:
+                    print(f"{COLOR_GREEN}Exited BUY zone. Tracked best low: ${self.best_buy_price:.4f}, Avg High: {avg_high:.4f}, Avg Low: {avg_low:.4f}{COLOR_RESET}")
+                self.in_buy_zone = False
+                self.buy_highs = []
+                self.buy_lows = []
+                tmp = self.min_avg_low_seen
+                self.min_avg_low_seen = None
+                buy_zone_mid = np.mean(self.buy_zone)
+                if tmp is not None and tmp < buy_zone_mid:
+                    if DEBUG:
+                        print(f"{COLOR_GREEN}Exit-based buy condition met. Signaling buy at ${tmp:.4f}{COLOR_RESET}")
+                    return float(tmp)
+                else:
+                    if DEBUG:
+                        print(f"{COLOR_YELLOW}Exit-based buy condition NOT met. Holding.{COLOR_RESET}")
+            return None
+
+
+# ====== Startup ======
+print(f"{COLOR_CYAN}Starting ML-Enhanced Depth-Aware Trading Bot{COLOR_RESET}")
+print(f"{COLOR_PURPLE}[ML] Machine Learning: {'ENABLED' if ML_ENABLED else 'DISABLED'}{COLOR_RESET}")
+
+KRAKEN_PAIR = get_valid_kraken_pair(TRADING_PAIR)
+zone_machine = BestValueZoneMachine4Dec(KRAKEN_PAIR)
+zone_machine.initialize_zones()
+
+# Train ML models with historical data
+if ML_ENABLED and ml_enhancer:
+    print(f"{COLOR_PURPLE}[ML] Fetching historical data for initial training...{COLOR_RESET}")
+    historical_ohlc = get_ohlc(KRAKEN_PAIR, interval=1, lookback=ML_HISTORICAL_LOOKBACK)
+    if len(historical_ohlc) >= ML_FEATURE_WINDOW + ML_PRICE_PRED_HORIZON:
+        ml_enhancer.train_initial_models(historical_ohlc)
+    else:
+        print(f"{COLOR_PURPLE}[ML] Insufficient historical data. Will train after collecting live data.{COLOR_RESET}")
+
+config_thread = threading.Thread(target=config_monitor, daemon=True)
+config_thread.start()
+
+last_trade_time = 0
+TRADE_MIN_INTERVAL = 60
+all_prices = []
+
+# ========== Main Loop ==========
+while True:
+    try:
+        # Process manual triggers first
+        while not manual_trigger_queue.empty():
+            trigger = manual_trigger_queue.get()
+            logging.info(f"Manual trigger dequeued: {trigger}")
+            price = get_ticker()
+            if price is None:
+                logging.warning("Manual trigger: failed to fetch ticker price.")
+                continue
+            price = round(price, 4)
+            if trigger == "BUY" and not active_position:
+                print(f"{COLOR_GREEN}🚀 MANUAL BUY TRIGGERED! Price: ${price:.4f}{COLOR_RESET}")
+                amount = dynamic_position_size(price)
+                order_result = place_order('buy', amount, price)
+                logging.info(f"Manual buy order_result: {order_result}")
+                if 'error' in order_result and order_result['error']:
+                    print(f"{COLOR_RED}Buy error: {order_result['error']}{COLOR_RESET}")
+                else:
+                    print(f"{COLOR_GREEN}Bought {amount:.{BOND_DECIMALS}f} {TRADING_PAIR} @ ${price:.4f}{COLOR_RESET}")
+                    active_position = True
+                    entry_price = price
+                    token_amount = amount
+                    position_investment = INVESTMENT_AMOUNT
+                    last_trade_time = time.time()
+            elif trigger == "SELL" and active_position:
+                print(f"{COLOR_GREEN}💰 MANUAL SELL TRIGGERED! Price: ${price:.4f}{COLOR_RESET}")
+                current_profit = calculate_precise_profit(entry_price, price, token_amount)
+                if current_profit is None:
+                    print(f"{COLOR_RED}Profit calculation error, skipping sell.{COLOR_RESET}")
+                    continue
+                order_result = place_order('sell', token_amount, price)
+                logging.info(f"Manual sell order_result: {order_result}")
+                if 'error' in order_result and order_result['error']:
+                    print(f"{COLOR_RED}Sell error: {order_result['error']}{COLOR_RESET}")
+                else:
+                    print(f"{COLOR_GREEN}Sold {token_amount:.{BOND_DECIMALS}f} {TRADING_PAIR} for ${price*token_amount:.4f}{COLOR_RESET}")
+                    print(f"{COLOR_GREEN}Entry: ${entry_price:.4f} | Exit: ${price:.4f} | Profit: ${current_profit:.4f}{COLOR_RESET}")
+                    active_position = False
+                    position_investment = 0
+                    last_trade_time = time.time()
+
+        price = get_ticker()
+        if price is None:
+            print(f"{COLOR_YELLOW}Failed to get market price. Retrying...{COLOR_RESET}")
+            time.sleep(PRICE_CHECK_INTERVAL)
+            continue
+        price = round(price, 4)
+        all_prices.append(price)
+        price_history.append(price)
+
+        # Fetch orderbook for ML
+        orderbook = get_order_book(KRAKEN_PAIR)
+        if orderbook:
+            orderbook_history.append(orderbook)
+
+        ohlc_data = get_ohlc(KRAKEN_PAIR, interval=1, lookback=20)
+        if not ohlc_data:
+            print(f"{COLOR_RED}No OHLC data, skipping tick.{COLOR_RESET}")
+            time.sleep(PRICE_CHECK_INTERVAL)
+            continue
+
+        # Update volume history
+        if ohlc_data:
+            volume_history.append(ohlc_data[-1].get('volume', 0))
+
+        trend = get_trend(ohlc_data, window=10)
+        zone_status = zone_machine.price_zone(price)
+
+        # ===== ML PREDICTIONS =====
+        ml_pred_price = None
+        ml_pred_volatility = None
+        ml_pattern = None
+        ml_confidence = 0.0
+        ml_timing_score = 0.5
+        ml_risk_score = 0.5
+        ml_ensemble_vote = None
+        ml_ensemble_confidence = 0.0
+
+        if ML_ENABLED and ml_enhancer and ml_enhancer.models_trained:
+            features = ml_enhancer.extract_features(price_history, volume_history, orderbook_history)
+            if features is not None:
+                ml_pred_price = ml_enhancer.predict_price(features)
+                ml_pred_volatility = ml_enhancer.predict_volatility(features)
+                ml_pattern, ml_confidence = ml_enhancer.predict_pattern(features)
+                ml_timing_score = ml_enhancer.score_timing(features)
+                ml_risk_score = ml_enhancer.calculate_risk_score(features, price, zone_status)
+                
+                # Ensemble voting
+                if ML_USE_ENSEMBLE_VOTING:
+                    ml_ensemble_vote, ml_ensemble_confidence = ml_enhancer.ensemble_vote(features, price, zone_status)
+                
+                # Market regime detection
+                if ML_DETECT_REGIME_CHANGE:
+                    ml_enhancer.current_regime, ml_enhancer.regime_confidence = ml_enhancer.detect_market_regime(price_history)
+                
+                # Track prediction for accuracy
+                if ML_SAVE_PREDICTIONS and ml_pred_price:
+                    ml_enhancer.prediction_history.append({
+                        'tick': ml_tick_count,
+                        'predicted_price': ml_pred_price,
+                        'current_price': price,
+                        'mature': False
+                    })
+                    # Check accuracy of past predictions
+                    prediction_accuracy = ml_enhancer.track_prediction_accuracy(price)
+                
+                ml_enhancer.last_prediction = ml_pred_price
+                ml_enhancer.last_confidence = ml_confidence
+                ml_enhancer.last_risk_score = ml_risk_score
+                ml_enhancer.last_pattern = ml_pattern
+                ml_enhancer.last_timing_score = ml_timing_score
+
+        # Display ML insights
+        if DEBUG and ML_ENABLED and ml_enhancer and ml_enhancer.models_trained and ML_VERBOSE_LOGGING:
+            if ml_pred_price is not None and ml_pred_volatility is not None:
+                print(f"{COLOR_PURPLE}[ML] Price Prediction: ${ml_pred_price:.4f} | Volatility: {ml_pred_volatility*100:.3f}%{COLOR_RESET}")
+            pattern_name = {0: 'HOLD', 1: 'BUY', 2: 'SELL'}.get(ml_pattern, 'UNKNOWN')
+            print(f"{COLOR_PURPLE}[ML] Pattern: {pattern_name} (conf: {ml_confidence*100:.1f}%) | Timing: {ml_timing_score*100:.1f}% | Risk: {ml_risk_score*100:.1f}%{COLOR_RESET}")
+            if ML_USE_ENSEMBLE_VOTING and ml_ensemble_vote:
+                print(f"{COLOR_PURPLE}[ML] Ensemble Vote: {ml_ensemble_vote.upper()} (conf: {ml_ensemble_confidence*100:.1f}%){COLOR_RESET}")
+            if ML_DETECT_REGIME_CHANGE:
+                print(f"{COLOR_PURPLE}[ML] Market Regime: {ml_enhancer.current_regime} (conf: {ml_enhancer.regime_confidence*100:.1f}%){COLOR_RESET}")
+            if ML_ADAPTIVE_THRESHOLDS:
+                print(f"{COLOR_PURPLE}[ML] Adaptive Thresholds: min_conf={ml_enhancer.adaptive_min_confidence:.2f} max_risk={ml_enhancer.adaptive_risk_threshold:.2f}{COLOR_RESET}")
+
+        if DEBUG:
+            print(f"\n{COLOR_CYAN}↗ Current Market Price: ${price:.4f} | Zone: {zone_status} | Trend: {trend}{COLOR_RESET}")
+            print(f"{COLOR_MAGENTA}Zones – BUY: {zone_machine.buy_zone}, NEUTRAL: {zone_machine.neutral_zone}, SELL: {zone_machine.sell_zone}{COLOR_RESET}")
+            print(f"{COLOR_MAGENTA}Active Position: {active_position} | Entry: ${entry_price:.4f} | TokenAmt: {token_amount:.8f}{COLOR_RESET}")
+            if zone_status == "BUY":
+                avg_low = np.mean(zone_machine.buy_lows) if zone_machine.buy_lows else None
+                print(f"{COLOR_BLUE}Tracked BUY avg_low: {avg_low}, min_avg_low_seen: {zone_machine.min_avg_low_seen}{COLOR_RESET}")
+            if zone_status == "SELL":
+                avg_high = np.mean(zone_machine.sell_highs) if zone_machine.sell_highs else None
+                print(f"{COLOR_BLUE}Tracked SELL avg_high: {avg_high}, max_avg_high_seen: {zone_machine.max_avg_high_seen}{COLOR_RESET}")
+
+        # Zone reset check
+        if zone_machine.zones_expired(price):
+            distance_pct = abs(price - zone_machine.median) / zone_machine.median if zone_machine.median else 0
+            if distance_pct > 0.08:
+                print(f"{COLOR_YELLOW}Price far from median ({distance_pct*100:.1f}%). Recalculating zones using Bollinger...{COLOR_RESET}")
+                zone_machine.initialize_zones(use_bollinger=True)
+            else:
+                zone_machine.initialize_zones()
+            continue
+
+        now = time.time()
+
+        # Auto BUY path (ML-enhanced depth-aware)
+        if not active_position:
+            best_buy_price = zone_machine.track_best_buy(price)
+            
+            # ML override: strong BUY signal with high confidence
+            ml_override_buy = False
+            if ML_ENABLED and ml_enhancer and ml_enhancer.models_trained and ML_ALLOW_ZONE_OVERRIDE:
+                # Use adaptive thresholds if enabled
+                min_conf = ml_enhancer.adaptive_min_confidence if ML_ADAPTIVE_THRESHOLDS else ML_MIN_CONFIDENCE
+                max_risk = ml_enhancer.adaptive_risk_threshold if ML_ADAPTIVE_THRESHOLDS else ML_MAX_RISK_THRESHOLD
+                
+                # Check individual signals
+                strong_pattern_buy = ml_pattern == 1 and ml_confidence >= min_conf
+                strong_ensemble_buy = ML_USE_ENSEMBLE_VOTING and ml_ensemble_vote == 'buy' and ml_ensemble_confidence >= min_conf
+                good_timing = ml_timing_score >= ML_REQUIRE_TIMING_SCORE
+                acceptable_risk = ml_risk_score < max_risk
+                
+                # Check regime if enabled
+                regime_ok = True
+                if ML_DETECT_REGIME_CHANGE and ML_REQUIRE_TREND_CONFIRMATION:
+                    regime_ok = ml_enhancer.current_regime in ["TRENDING_UP", "RANGING"]
+                
+                if (strong_pattern_buy or strong_ensemble_buy) and good_timing and acceptable_risk and regime_ok:
+                    print(f"{COLOR_PURPLE}[ML] Strong BUY signal detected! Overriding zone logic.{COLOR_RESET}")
+                    print(f"{COLOR_PURPLE}[ML] Pattern: {ml_pattern==1}, Ensemble: {ml_ensemble_vote=='buy'}, Timing: {ml_timing_score:.2f}, Risk: {ml_risk_score:.2f}{COLOR_RESET}")
+                    best_buy_price = price
+                    ml_override_buy = True
+            
+            if best_buy_price is not None and now - last_trade_time > TRADE_MIN_INTERVAL:
+                # Require trend == up OR ML override to avoid buying into downtrend
+                if trend != 'up' and not ml_override_buy:
+                    logging.info(f"Auto-buy skipped because trend != up (trend={trend}) and no ML override")
+                else:
+                    base_amount = dynamic_position_size(best_buy_price)
+                    depth_info = estimate_slippage_and_liquidity('buy', price, base_amount)
+                    if not depth_info['filled']:
+                        logging.info(f"Auto-buy skipped: insufficient orderbook depth (available_base={depth_info.get('available_base')})")
+                    else:
+                        slippage = depth_info['slippage_pct']
+                        available = depth_info['available_base']
+                        
+                        # ML-adjusted slippage tolerance
+                        max_slip = MAX_SLIPPAGE_PCT
+                        if ML_ENABLED and ml_enhancer and ml_enhancer.models_trained:
+                            if ml_confidence > ML_HIGH_CONFIDENCE and ml_risk_score < 0.4:
+                                max_slip *= ML_SLIPPAGE_MULTIPLIER_HIGH_CONF
+                                print(f"{COLOR_PURPLE}[ML] High confidence trade - adjusted slippage tolerance to {max_slip*100:.2f}%{COLOR_RESET}")
+                        
+                        if available < base_amount * MIN_LIQUIDITY_RATIO:
+                            logging.info(f"Auto-buy skipped: not enough liquidity within depth")
+                        elif slippage > max_slip:
+                            logging.info(f"Auto-buy skipped: estimated slippage {slippage*100:.2f}% > MAX_SLIPPAGE_PCT {max_slip*100:.2f}%")
+                        else:
+                            logging.info(f"Auto-buy proceeding: estimated exec_price={depth_info['exec_price']:.4f}, slippage={slippage*100:.3f}%, levels={depth_info['levels_consumed']}")
+                            amount = base_amount
+                            order_result = place_order('buy', amount, depth_info['exec_price'])
+                            logging.info(f"Auto buy order_result: {order_result}")
+                            if 'error' in order_result and order_result['error']:
+                                print(f"{COLOR_RED}Buy error: {order_result['error']}{COLOR_RESET}")
+                            else:
+                                print(f"{COLOR_GREEN}Bought {amount:.{BOND_DECIMALS}f} {TRADING_PAIR} @ approx ${depth_info['exec_price']:.4f}{COLOR_RESET}")
+                                if ml_override_buy:
+                                    print(f"{COLOR_PURPLE}[ML] Trade executed based on ML signal{COLOR_RESET}")
+                                active_position = True
+                                entry_price = depth_info['exec_price']
+                                token_amount = amount
+                                position_investment = INVESTMENT_AMOUNT
+                                last_trade_time = now
+
+        # Stop-loss (ML-adjusted)
+        stop_loss_threshold = STOP_LOSS_PCT
+        if ML_ENABLED and ml_enhancer and ml_enhancer.models_trained and active_position:
+            # Use adaptive thresholds if enabled
+            max_risk = ml_enhancer.adaptive_risk_threshold if ML_ADAPTIVE_THRESHOLDS else ML_MAX_RISK_THRESHOLD
+            
+            # Tighter stop-loss if high risk detected
+            if ml_risk_score > max_risk:
+                stop_loss_threshold *= ML_STOP_LOSS_TIGHT_MULTIPLIER
+                if ML_VERBOSE_LOGGING:
+                    print(f"{COLOR_PURPLE}[ML] High risk detected - tightened stop-loss to {stop_loss_threshold*100:.2f}%{COLOR_RESET}")
+            # Looser stop-loss if strong uptrend predicted
+            elif ml_pred_price and ml_pred_price > price * 1.01 and ml_confidence > ML_HIGH_CONFIDENCE:
+                stop_loss_threshold *= ML_STOP_LOSS_LOOSE_MULTIPLIER
+                if ML_VERBOSE_LOGGING:
+                    print(f"{COLOR_PURPLE}[ML] Strong uptrend predicted - loosened stop-loss to {stop_loss_threshold*100:.2f}%{COLOR_RESET}")
+            
+            # Critical risk override - force exit even if not at stop-loss
+            if ml_risk_score > ML_CRITICAL_RISK_THRESHOLD:
+                current_profit = calculate_precise_profit(entry_price, price, token_amount)
+                if current_profit and current_profit > 0:
+                    print(f"{COLOR_RED}[ML] CRITICAL RISK DETECTED ({ml_risk_score*100:.1f}%)! Forcing exit with profit.{COLOR_RESET}")
+                    order_result = place_order('sell', token_amount, price)
+                    if 'error' not in order_result or not order_result['error']:
+                        print(f"{COLOR_GREEN}Sold {token_amount:.{BOND_DECIMALS}f} {TRADING_PAIR} for ${price*token_amount:.4f} (Critical Risk Exit){COLOR_RESET}")
+                        print(f"{COLOR_GREEN}Entry: ${entry_price:.4f} | Exit: ${price:.4f} | Profit: ${current_profit:.4f}{COLOR_RESET}")
+                        active_position = False
+                        position_investment = 0
+                        last_trade_time = now
+                        time.sleep(PRICE_CHECK_INTERVAL)
+                        continue
+        
+        if active_position and price < entry_price * (1 - stop_loss_threshold):
+            print(f"{COLOR_RED}Stop-loss triggered! Selling position at ${price:.4f}.{COLOR_RESET}")
+            order_result = place_order('sell', token_amount, price)
+            logging.info(f"Stop-loss order_result: {order_result}")
+            if 'error' in order_result and order_result['error']:
+                print(f"{COLOR_RED}Stop-loss sell error: {order_result['error']}{COLOR_RESET}")
+            else:
+                print(f"{COLOR_GREEN}Sold {token_amount:.{BOND_DECIMALS}f} {TRADING_PAIR} for ${price*token_amount:.4f} (Stop-loss){COLOR_RESET}")
+                print(f"{COLOR_GREEN}Entry: ${entry_price:.4f} | Exit: ${price:.4f} | Profit: {calculate_precise_profit(entry_price, price, token_amount):.4f}{COLOR_RESET}")
+                active_position = False
+                position_investment = 0
+                last_trade_time = now
+            time.sleep(PRICE_CHECK_INTERVAL)
+            continue
+
+        # Auto SELL path (ML-enhanced depth-aware)
+        if active_position:
+            best_sell_price = zone_machine.track_best_sell(price, entry_price, token_amount)
+            
+            # ML override: strong SELL signal with high confidence
+            ml_override_sell = False
+            if ML_ENABLED and ml_enhancer and ml_enhancer.models_trained and ML_ALLOW_ZONE_OVERRIDE:
+                current_profit = calculate_precise_profit(entry_price, price, token_amount)
+                
+                # Use adaptive thresholds if enabled
+                min_conf = ml_enhancer.adaptive_min_confidence if ML_ADAPTIVE_THRESHOLDS else ML_MIN_CONFIDENCE
+                max_risk = ml_enhancer.adaptive_risk_threshold if ML_ADAPTIVE_THRESHOLDS else ML_MAX_RISK_THRESHOLD
+                
+                # Check individual signals
+                strong_pattern_sell = ml_pattern == 2 and ml_confidence >= min_conf
+                strong_ensemble_sell = ML_USE_ENSEMBLE_VOTING and ml_ensemble_vote == 'sell' and ml_ensemble_confidence >= min_conf
+                good_timing = ml_timing_score >= ML_REQUIRE_TIMING_SCORE
+                high_risk = ml_risk_score > max_risk
+                
+                # Check regime if enabled
+                regime_suggests_sell = False
+                if ML_DETECT_REGIME_CHANGE:
+                    regime_suggests_sell = ml_enhancer.current_regime == "TRENDING_DOWN"
+                
+                # Allow ML to trigger sell if profit meets threshold and strong signal
+                if (strong_pattern_sell or strong_ensemble_sell) and current_profit and current_profit >= MIN_PROFIT * ML_PROFIT_MULTIPLIER_HIGH_CONF and good_timing:
+                    print(f"{COLOR_PURPLE}[ML] Strong SELL signal detected! Overriding zone logic.{COLOR_RESET}")
+                    print(f"{COLOR_PURPLE}[ML] Pattern: {ml_pattern==2}, Ensemble: {ml_ensemble_vote=='sell'}, Timing: {ml_timing_score:.2f}, Profit: ${current_profit:.2f}{COLOR_RESET}")
+                    best_sell_price = price
+                    ml_override_sell = True
+                # Also trigger if high risk detected and profitable
+                elif (high_risk or regime_suggests_sell) and current_profit and current_profit > 0:
+                    print(f"{COLOR_PURPLE}[ML] High risk/downtrend detected with profit - suggesting early exit.{COLOR_RESET}")
+                    best_sell_price = price
+                    ml_override_sell = True
+            
+            if best_sell_price is not None:
+                best_profit = calculate_precise_profit(entry_price, best_sell_price, token_amount)
+                if best_profit is None:
+                    logging.warning("Auto-sell: profit calculation returned None; skipping sell.")
+                else:
+                    # Trigger on first 'down' tick OR ML override
+                    if trend == 'down' or ml_override_sell:
+                        depth_info = estimate_slippage_and_liquidity('sell', price, token_amount)
+                        if not depth_info['filled']:
+                            logging.info("Auto-sell skipped: insufficient bid depth to fill sell")
+                        else:
+                            slippage = depth_info['slippage_pct']
+                            available = depth_info['available_base']
+                            
+                            # ML-adjusted minimum profit
+                            min_profit_threshold = MIN_PROFIT
+                            if ML_ENABLED and ml_enhancer and ml_enhancer.models_trained:
+                                if ml_confidence > ML_HIGH_CONFIDENCE and ml_pattern == 2:
+                                    min_profit_threshold *= ML_PROFIT_MULTIPLIER_HIGH_CONF
+                                    print(f"{COLOR_PURPLE}[ML] High confidence SELL - adjusted min profit to ${min_profit_threshold:.4f}{COLOR_RESET}")
+                            
+                            if available < token_amount * MIN_LIQUIDITY_RATIO:
+                                logging.info("Auto-sell skipped: not enough liquidity within depth")
+                            elif slippage > MAX_SLIPPAGE_PCT:
+                                logging.info(f"Auto-sell skipped: estimated slippage {slippage*100:.2f}% > MAX_SLIPPAGE_PCT")
+                            elif best_profit < min_profit_threshold:
+                                logging.info(f"Auto-sell skipped: best_profit ${best_profit:.4f} < min_profit ${min_profit_threshold:.4f}")
+                            else:
+                                logging.info(f"Auto-sell proceeding: estimated exec_price={depth_info['exec_price']:.4f}, slippage={slippage*100:.3f}%")
+                                order_result = place_order('sell', token_amount, depth_info['exec_price'])
+                                logging.info(f"Auto sell order_result: {order_result}")
+                                if 'error' in order_result and order_result['error']:
+                                    print(f"{COLOR_RED}Sell error: {order_result['error']}{COLOR_RESET}")
+                                else:
+                                    print(f"{COLOR_GREEN}Sold {token_amount:.{BOND_DECIMALS}f} {TRADING_PAIR} @ approx ${depth_info['exec_price']:.4f}{COLOR_RESET}")
+                                    print(f"{COLOR_GREEN}Entry: ${entry_price:.4f} | Exit: ${depth_info['exec_price']:.4f} | Profit: ${best_profit:.4f}{COLOR_RESET}")
+                                    if ml_override_sell:
+                                        print(f"{COLOR_PURPLE}[ML] Trade executed based on ML signal{COLOR_RESET}")
+                                    active_position = False
+                                    position_investment = 0
+                                    last_trade_time = now
+                    else:
+                        logging.info(f"Auto-sell waiting for trend down or ML override (current trend={trend})")
+
+        # Per-tick active position profit log
+        if active_position:
+            current_profit = calculate_precise_profit(entry_price, price, token_amount)
+            print(f"{COLOR_BLUE}Position: {token_amount:.{BOND_DECIMALS}f} {TRADING_PAIR} @ ${entry_price:.4f}")
+            print(f"{COLOR_MAGENTA}Current Profit: ${current_profit:.4f}{COLOR_RESET}")
+
+        # ML model management
+        ml_tick_count += 1
+        
+        # Retrain models periodically
+        if ML_ENABLED and ml_enhancer and ml_enhancer.models_trained and ml_tick_count % ML_RETRAIN_INTERVAL == 0:
+            print(f"{COLOR_PURPLE}[ML] Periodic retraining triggered (tick {ml_tick_count})...{COLOR_RESET}")
+            ml_enhancer.retrain_models()
+        
+        # Train initial models if not yet trained but enough data collected
+        if ML_ENABLED and ml_enhancer and not ml_enhancer.models_trained:
+            if len(price_history) >= ML_FEATURE_WINDOW + ML_PRICE_PRED_HORIZON:
+                print(f"{COLOR_PURPLE}[ML] Sufficient live data collected. Training initial models...{COLOR_RESET}")
+                # Convert live data to OHLC-like format for training
+                live_ohlc = []
+                for i in range(len(price_history)):
+                    live_ohlc.append({
+                        'timestamp': time.time() - (len(price_history) - i) * PRICE_CHECK_INTERVAL,
+                        'open': price_history[i],
+                        'high': price_history[i],
+                        'low': price_history[i],
+                        'close': price_history[i],
+                        'volume': volume_history[i] if i < len(volume_history) else 1.0
+                    })
+                ml_enhancer.train_initial_models(live_ohlc)
+
+        time.sleep(PRICE_CHECK_INTERVAL)
+
+    except KeyboardInterrupt:
+        print("\n\n" + "="*60)
+        print(f"{COLOR_MAGENTA}Entering configuration mode... (type 'q' to resume trading){COLOR_RESET}")
+        print("="*60)
+        while config_thread.is_alive():
+            time.sleep(1)
+        config_thread = threading.Thread(target=config_monitor, daemon=True)
+        config_thread.start()
+
+    except Exception as e:
+        logging.error(f"Main loop error: {str(e)}")
+        print(f"{COLOR_RED}Main loop error: {str(e)}{COLOR_RESET}")
+        import traceback
+        traceback.print_exc()
+        time.sleep(30)
