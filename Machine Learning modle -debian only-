@@ -1,6 +1,8 @@
+#cats
+
 # ML-ENHANCED Depth-aware trading bot with comprehensive machine learning
 # Includes: price prediction, pattern recognition, volatility forecasting,
-# optimal execution timing, and dynamic risk scoring 
+# optimal execution timing, and dynamic risk scoring
 
 import numpy as np
 import requests
@@ -30,248 +32,123 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(mes
 DEBUG = True
 
 # ======== KRAKEN API CREDENTIALS ========
-API_KEY = "YOUR-API-KEYS"
-API_SECRET = "YOUR-API-KEYS"
+API_KEY = "SGXXG4J9dcDlSSdn1QP5d1ijKd5b4DTVMz2aBM9vOFslM24VfQbc3N+0"
+API_SECRET = "g1qqZCI+mEaqJRYm7swNUnUEtbsaYk9HUcmEUQmJhuI+4Sp3lz+XCznN8lWmOcIGmcmCQBBlT5G0Ew5L8Vm/TA=="
 # ========================================
 
 # ======== TRADING CONFIG ========
-TRADING_PAIR = "ETHUSD"         # change by entering crypto-base curency (like this "AAABBB")
-KRAKEN_PAIR = TRADING_PAIR      
-INVESTMENT_AMOUNT = 25.25       # enter any amount limmited by kraken
-FEE_RATE = 0.0026               # 0.26% dont change this its a dummy switch       
-BOND_DECIMALS = 8               # the number of decimals below 0 its capable of detecting
-MIN_PROFIT = 0.25               # configure to compare with the allocated investment amount
-STOP_LOSS_PCT = 0.1000          # 10.00% stop-loss
+TRADING_PAIR = "COMPUSD"
+KRAKEN_PAIR = TRADING_PAIR
+INVESTMENT_AMOUNT = 93.93
+FEE_RATE = 0.0026
+BOND_DECIMALS = 8
+MIN_PROFIT = 0.10
+STOP_LOSS_PCT = 0.1000
 # =================================
 
 # ======= AVG-ENTRY TUNING =======
 BUY_AT_LOWEST_AVERAGE = True
 SELL_AT_HIGHEST_AVERAGE = True
-ENTRY_RANGE_PCT = 0.003               # ±0.03% acceptance around averages
+ENTRY_RANGE_PCT = 0.003
 # =================================
 
 # ======= DEPTH / SLIPPAGE CONFIG =======
-MAX_SLIPPAGE_PCT = 0.01               # maximum acceptable slippage (1% default)
-MIN_LIQUIDITY_RATIO = 0.6             # minimum fraction 0.6 >not sure what this one is<
-ORDERBOOK_DEPTH_LEVELS = 50           # number of price levels to fetch from Kraken depth
+MAX_SLIPPAGE_PCT = 0.01
+MIN_LIQUIDITY_RATIO = 0.6
+ORDERBOOK_DEPTH_LEVELS = 50
 # =================================
 
 # ======== ML CONFIGURATION ========
 ML_ENABLED = True
 
 # Training & Data Collection
-ML_HISTORICAL_LOOKBACK = 1500  # number of 1-minute candles fetched from Kraken for initial model training.
-# 1000 candles = ~16.7 hours of historical data) more data = better baseline
-# keep 500-2000. Lower for a slow startup, higher for more stable initial predictions.
-
-ML_RETRAIN_INTERVAL = 75  # retrains all models every N ticks (1 tick = 15 seconds by default).
-# 75 ticks = 18.75 minutes between retraining
-# 50-150 ticks. Lower for volatile markets, higher for stable markets.
-# more frequent = adapts faster to market changes, but uses more CPU
-
-ML_ONLINE_BUFFER_SIZE = 360  # the number of recent samples kept in memory for retraining.
-# this will prevent memory overflow during long sessions
-# 200-500. Higher = more historical context, but more memory.
-
-ML_MIN_TRAIN_SAMPLES = 75  # minimum samples required before attempting to retrain models.
-# won't retrain if less than 50 new samples collected
-# 30-100. Lower = trains faster initially, higher = more stable retraining.
-
+ML_HISTORICAL_LOOKBACK = 1500  # candles for initial training (more data = better baseline)
+ML_RETRAIN_INTERVAL = 75  # retrain after N ticks (more frequent = adapts faster)
+ML_ONLINE_BUFFER_SIZE = 360  # keep last N samples for online learning
+ML_MIN_TRAIN_SAMPLES = 75  # minimum samples before retraining
 
 # Feature Engineering
-ML_FEATURE_WINDOW = 50  # number of recent price ticks used to calculate features.
-# uses last 30 prices to compute averages, momentum, volatility, etc.
-# larger window = captures longer-term patterns
-# 20-50. Higher for swing trading, lower for scalping.
-
-ML_MOMENTUM_WINDOWS = [5, 10, 20, 40]  # multiple timeframes for momentum calculation.
-# compares average of last 5 prices vs previous 5, etc.
-# captures short, medium, and long-term momentum
-# keep as-is, or add longer windows like [5, 10, 20, 40] for more context
-
-ML_VOLATILITY_WINDOWS = [10, 20, 30, 40]  # multiple timeframes for volatility (price variance) calculation.
-# this measures how much price fluctuates over different periods 
-# it also helps identify choppy vs smooth price action
-# keep as-is. Match roughly with momentum windows. 
-# add to it by doubbling the last number behind a -comma+space-
-
-ML_RSI_PERIOD = 14  # period for Relative Strength Index calculation (overbought/oversold indicator).
-# standard is 14 periods lower = more sensitive, higher = smoother
-# 10-20. Standard is 14.
-
+ML_FEATURE_WINDOW = 50  # rolling window for feature extraction (captures more context)
+ML_MOMENTUM_WINDOWS = [5, 10, 20, 40]  # multiple momentum timeframes
+ML_VOLATILITY_WINDOWS = [10, 20, 30, 40]  # multiple volatility timeframes
+ML_RSI_PERIOD = 14  # RSI calculation period
 ML_MACD_FAST = 12  # MACD fast period
 ML_MACD_SLOW = 26  # MACD slow period
-# periods for MACD (Moving Average Convergence Divergence) indicator.
-# keep standard values unless you know what you're doing.
-
 ML_BOLLINGER_PERIOD = 20  # Bollinger bands period
 ML_BOLLINGER_STD = 2.0  # Bollinger bands standard deviation
-# bollinger bands settings (price envelope indicator).
-# standard is 20 period, 2 STD. Don't change unless experienced.
 
 # Prediction Settings
-ML_PRICE_PRED_HORIZON = 6  # how many ticks ahead to predict future price.
-# 5 ticks = 75 seconds ahead (at 15-sec intervals)
-# further ahead = more strategic but less accurate
-# 3-10. Lower for scalping, higher for position trading.
-
-ML_VOLATILITY_PRED_HORIZON = 4  # how many ticks ahead to predict future volatility.
-# 2-5. Keep lower than price prediction horizon.
+ML_PRICE_PRED_HORIZON = 6  # predict N intervals ahead (further = more strategic)
+ML_VOLATILITY_PRED_HORIZON = 4  # predict volatility N intervals ahead
 
 # Confidence & Risk Thresholds
-ML_MIN_CONFIDENCE = 0.62  # minimum confidence (0-1) required for ML to override zone-based signals.
-# higher = more conservative (fewer but more certain trades)
-# lower = more aggressive (more trades but some might be wrong)
-# 0.55-0.70. Start conservative (0.65+) and lower if missing opportunities.
-
-ML_HIGH_CONFIDENCE = 0.73  # threshold for "high confidence" that triggers special adjustments.
-# above 0.75 = allows higher slippage, lower profit requirements
-# defines what qualifies as a "strong" signal
-# 0.70-0.80. Should be 0.10-0.15 higher than MIN_CONFIDENCE.
-
-ML_MAX_RISK_THRESHOLD = 0.76  # combines volatility, uncertainty, and market condition
-# maximum acceptable risk score (0-1) for entering trades
-# 0.70 = won't enter if (risk > 70% of trade)
-# 0.60-0.80. Lower = safer but fewer trades.
-# this is what i call a stray hair dont be afraid to lose some money for unknown amount of time
-
-ML_CRITICAL_RISK_THRESHOLD = 0.80  # emergency override to protect capital
-# if risk > 0.85, bot sells position immediately
-# 0.80-0.90. Should be well above MAX_RISK_THRESHOLD.
+ML_MIN_CONFIDENCE = 0.62  # minimum confidence to override zones (higher = more conservative)
+ML_HIGH_CONFIDENCE = 0.73  # threshold for "high confidence" adjustments
+ML_MAX_RISK_THRESHOLD = 0.76  # maximum acceptable risk score (lower = more conservative)
+ML_CRITICAL_RISK_THRESHOLD = 0.80  # force exit above this risk level
 
 # Model Hyperparameters - Price Predictor
 ML_PRICE_N_ESTIMATORS = 100  # more trees = better predictions but slower
 ML_PRICE_MAX_DEPTH = 15  # deeper = captures complex patterns
 ML_PRICE_MIN_SAMPLES_SPLIT = 5  # minimum samples to split a node
 
-# N_ESTIMATORS: number of decision trees (more = better but slower)
-# MAX_DEPTH: how deep each tree can grow (deeper = captures complex patterns but can overfit)
-# MIN_SAMPLES_SPLIT: minimum samples needed to split a node (higher = prevents overfitting)
-# KEPP AS IS. Only tune if you understand Random Forests.
-
 # Model Hyperparameters - Volatility Predictor
 ML_VOL_N_ESTIMATORS = 75
 ML_VOL_MAX_DEPTH = 12
 ML_VOL_MIN_SAMPLES_SPLIT = 5
-# same as price predictor, but for volatility prediction.
-# slightly smaller model (75 vs 100 trees, 12 vs 15 depth)
-# keep as-is.
 
 # Model Hyperparameters - Pattern Classifier
 ML_PATTERN_N_ESTIMATORS = 100
 ML_PATTERN_MAX_DEPTH = 10
 ML_PATTERN_LEARNING_RATE = 0.15
 ML_PATTERN_MIN_SAMPLES_SPLIT = 5
-# classifies market as BUY/SELL/HOLD.
-# LEARNING_RATE: how aggressively each tree corrects previous errors (0.05-0.2)
-# lower learning rate = more stable but needs more trees
-# keep as-is. Learning rate 0.1 is standard.
 
 # Model Hyperparameters - Timing Scorer
 ML_TIMING_N_ESTIMATORS = 50
 ML_TIMING_MAX_DEPTH = 8
 ML_TIMING_MIN_SAMPLES_SPLIT = 5
-# cores optimal execution timing (0-1).
-# smaller/simpler model than others
-# keep as-is.
 
 # Trade Adjustment Factors
 ML_SLIPPAGE_MULTIPLIER_HIGH_CONF = 1.8  # allow more slippage for high confidence (1.5 → 1.8)
-**What it does:** For high-confidence trades, allows 1.8x normal slippage.
-- Normal max slippage = 1%, high-conf allows up to 1.8%
-- Ensures high-confidence trades execute even in thin orderbooks
-- **Recommendation:** 1.5-2.0. Higher = more aggressive execution.
-
 ML_PROFIT_MULTIPLIER_HIGH_CONF = 0.75  # accept lower profit for high confidence sells
-**What it does:** For high-confidence sells, accepts 75% of normal min profit.
-- If MIN_PROFIT = $0.25, high-conf sell accepts $0.1875
-- Allows earlier exits when ML predicts downturn
-- **Recommendation:** 0.70-0.85. Lower = exits earlier.
-
 ML_STOP_LOSS_TIGHT_MULTIPLIER = 0.6  # tighten stop-loss in high risk (0.7 → 0.6)
-**What it does:** In high-risk conditions, tightens stop-loss to 60% of normal.
-- If stop-loss = 10%, becomes 6% in high risk
-- Protects capital when ML detects danger
-- **Recommendation:** 0.5-0.7. Lower = more protective.
-
 ML_STOP_LOSS_LOOSE_MULTIPLIER = 1.5  # loosen stop-loss in strong uptrend (1.3 → 1.5)
-# in strong uptrend predictions, loosens stop-loss to 150% of normal.
-# gives winning trades more room to breathe
-# prevents premature exits during healthy retracements
-# 1.3-1.8. Higher = more tolerance for drawdowns.
 
 # Override Logic
-ML_ALLOW_ZONE_OVERRIDE = True  # allows ML to place trades outside of defined zones.
-# when False, ML only enhances zone-based decisions
-# true = more selective overrides.
-
-ML_REQUIRE_TREND_CONFIRMATION = True  # require trend alignment for ML overrides?
-# true = won't buy in downtrend even if ML says so
-# false = ML can buy anytime if confident
-# false for full ML autonomy, True for more conservative approach.
+ML_ALLOW_ZONE_OVERRIDE = True  # allow ML to override zone-based signals
+ML_REQUIRE_TIMING_SCORE = 0.65  # minimum timing score for overrides (0.6 → 0.65)
+ML_REQUIRE_TREND_CONFIRMATION = False  # require trend alignment for ML overrides
 
 # Ensemble & Voting
 ML_USE_ENSEMBLE_VOTING = True  # combine multiple signals for decisions
-**What it does:** Combines all 4 models (pattern, price, timing, risk) into single decision.
-- More robust than single model
-- **Recommendation:** Keep True for best results.
-
 ML_PATTERN_WEIGHT = 0.30  # weight for pattern classifier
 ML_PRICE_PRED_WEIGHT = 0.25  # weight for price prediction
 ML_TIMING_WEIGHT = 0.30  # weight for timing score
 ML_RISK_WEIGHT = 0.15  # weight for risk score
-# how much each model influences ensemble decision (must sum to 1.0).
-###DEFAULT FIG###
-# pattern classifier = 35% (most important)
-# price prediction = 25%
-# timing = 20%
-# risk = 20%
-# adjust these based on which models perform best. Pattern usually most reliable.
 
 # Advanced Features
-ML_USE_ORDERBOOK_IMBALANCE = True  # incorporates bid/ask volume imbalance in predictions.
-# provides valuable market microstructure data.
-
+ML_USE_ORDERBOOK_IMBALANCE = True  # incorporate bid/ask imbalance in features
 ML_USE_VOLUME_PROFILE = True  # use volume patterns in predictions
-# volume confirms price action.
-
-ML_DETECT_REGIME_CHANGE = True  # it identifies if market is trending up/down or ranging.
-
-# Essential for adaptive trading.
-
-ML_ADAPTIVE_THRESHOLDS = True  # automatically adjusts confidence/risk thresholds based on accuracy.
-# if predictions accurate → becomes more aggressive
-# if predictions wrong → becomes more conservative
-# true. Self-improving system.
+ML_DETECT_REGIME_CHANGE = True  # detect market regime shifts (trending/ranging)
+ML_ADAPTIVE_THRESHOLDS = True  # adjust thresholds based on market conditions
 
 # Logging & Diagnostics
 ML_VERBOSE_LOGGING = True  # detailed ML prediction logs
-# prints detailed ML predictions every tick.
-# true for monitoring, False for cleaner terminal output.
-
-ML_LOG_FEATURE_IMPORTANCE = True  # logs which features most influence predictions.
-# false normally, True only when tuning the bot.
-
+ML_LOG_FEATURE_IMPORTANCE = True  # log feature importance (expensive, use for tuning)
 ML_SAVE_PREDICTIONS = True  # save predictions for analysis
-# essential for adaptive learning.
-
-ML_PREDICTION_HISTORY_SIZE = 300  # the amount of predictions to keep for accuracy.
-# 150-300. Higher = better accuracy tracking but more memory.
-
+ML_PREDICTION_HISTORY_SIZE = 300  # keep last N predictions for accuracy tracking
 # ==================================
 
 API_URL = "https://api.kraken.com"
 API_VERSION = "0"
 
 # ======== ZONE CONFIGURATION ========
-# adapt this to the price of the coin in trade
-
-ZONE_BUFFER = 8.88              # $ 1.2 no act zone
-SELL_ZONE_EXTRA = 222.22        # $ 33.33 detect/sell zone above buffer
-BUY_ZONE_EXTRA = 222.22         # $ 33.33 detect/buy zone below buffer
-PRICE_CHECK_INTERVAL = 15       # calls api every 15 seconds -->keep bellow 60<--
-ZONE_RESET_HOLD_TIME = 20       # price tick leaving zones longer than 20sec machine recalculates zones
-MEDIAN_LOOKBACK = 10656         # 300 is equivilant to 5 hours of every 1 min tick
+ZONE_BUFFER = 0.11
+SELL_ZONE_EXTRA = 2.10
+BUY_ZONE_EXTRA = 2.10
+PRICE_CHECK_INTERVAL = 15
+ZONE_RESET_HOLD_TIME = 20
+MEDIAN_LOOKBACK = 21312
 # =====================================
 
 # Trading state
