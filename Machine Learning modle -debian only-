@@ -46,6 +46,15 @@ MIN_PROFIT = 0.10
 STOP_LOSS_PCT = 0.1000
 # =================================
 
+# ======== ZONE CONFIGURATION ========
+ZONE_BUFFER = 0.11
+SELL_ZONE_EXTRA = 5.10
+BUY_ZONE_EXTRA = 5.10
+PRICE_CHECK_INTERVAL = 15
+ZONE_RESET_HOLD_TIME = 20
+MEDIAN_LOOKBACK = 21312
+#================================
+
 # ======= AVG-ENTRY TUNING =======
 BUY_AT_LOWEST_AVERAGE = True
 SELL_AT_HIGHEST_AVERAGE = True
@@ -142,13 +151,6 @@ ML_PREDICTION_HISTORY_SIZE = 300  # keep last N predictions for accuracy trackin
 API_URL = "https://api.kraken.com"
 API_VERSION = "0"
 
-# ======== ZONE CONFIGURATION ========
-ZONE_BUFFER = 0.11
-SELL_ZONE_EXTRA = 2.10
-BUY_ZONE_EXTRA = 2.10
-PRICE_CHECK_INTERVAL = 15
-ZONE_RESET_HOLD_TIME = 20
-MEDIAN_LOOKBACK = 21312
 # =====================================
 
 # Trading state
