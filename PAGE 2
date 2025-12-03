@@ -66,7 +66,7 @@ that way theres no slipping in set up
 ctl+x and y - enter to save and exit the file 
 type -> python <file name> to exicute
 
-pkg update -y && pkg upgrade -y && pkg install -y pip git tmux curl wget clang make openssl-tool libffi
+pkg update -y && pkg upgrade -y && pkg install -y python git tmux curl wget clang make openssl-tool libffi
     
     pip install setuptools wheel
     pip install requests 
