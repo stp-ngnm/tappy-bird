@@ -66,14 +66,21 @@ that way theres no slipping in set up
 ctl+x and y - enter to save and exit the file 
 type -> python <file name> to exicute
 
-pkg update -y && pkg upgrade -y && pkg install -y python git tmux curl wget clang make openssl-tool libffi
+pkg update -y && pkg upgrade
+
+pkg install -y python git tmux curl wget clang make openssl-tool libffi make cmake ninja patchelf
     
     pip install setuptools wheel
     pip install requests 
     pip install numpy
     pip install pandas
  
-paste the machine into a nano file and run using the command python <file name>
+paste the machine into a nano file by typing in your terminal 
+nano <filename> 
+
+and then run the script by using the command in your terminal
+
+python <filename>
 
 4-check the terminal and the account information
 -check terminal for dependancies/updates
