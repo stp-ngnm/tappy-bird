@@ -32,28 +32,45 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(mes
 DEBUG = True
 
 # ======== KRAKEN API CREDENTIALS ========
-API_KEY = "SGXXG4J9dcDlSSdn1QP5d1ijKd5b4DTVMz2aBM9vOFslM24VfQbc3N+0"
-API_SECRET = "g1qqZCI+mEaqJRYm7swNUnUEtbsaYk9HUcmEUQmJhuI+4Sp3lz+XCznN8lWmOcIGmcmCQBBlT5G0Ew5L8Vm/TA=="
+API_KEY = "YOUR-API-KEY"
+API_SECRET = "YOUR-API-SECRET-KEY"
 # ========================================
 
 # ======== TRADING CONFIG ========
-TRADING_PAIR = "COMPUSD"
+TRADING_PAIR = "ZECUSD"         # change by entering crypto-base curency (like this "AAABBB")
 KRAKEN_PAIR = TRADING_PAIR
-INVESTMENT_AMOUNT = 93.93
-FEE_RATE = 0.0026
-BOND_DECIMALS = 8
-MIN_PROFIT = 0.10
-STOP_LOSS_PCT = 0.1000
+INVESTMENT_AMOUNT = 20.00       # enter any amount limmited by kraken
+FEE_RATE = 0.0026               # 0.26% dont change this its a dummy switch
+BOND_DECIMALS = 8               # the number of decimals below 0 its capable of detecting
+MIN_PROFIT = 0.25               # configure to compare with the allocated investment amount
+STOP_LOSS_PCT = 0.1000           # 1.00% stop-loss 
 # =================================
 
+# ======= AVG-ENTRY TUNING =======
+BUY_AT_LOWEST_AVERAGE = True
+SELL_AT_HIGHEST_AVERAGE = True
+ENTRY_RANGE_PCT = 0.007          # ±0.07% acceptance around averages
+# =================================
+
+# ======= DEPTH / SLIPPAGE CONFIG =======
+MAX_SLIPPAGE_PCT = 0.01        # maximum acceptable slippage (1% default)
+MIN_LIQUIDITY_RATIO = 0.6      # minimum fraction 0.6 >not sure what this one is<
+ORDERBOOK_DEPTH_LEVELS = 50    # number of price levels to fetch from Kraken depth
+# =================================
+
+API_URL = "https://api.kraken.com"
+API_VERSION = "0"
+
 # ======== ZONE CONFIGURATION ========
-ZONE_BUFFER = 0.11
-SELL_ZONE_EXTRA = 5.10
-BUY_ZONE_EXTRA = 5.10
-PRICE_CHECK_INTERVAL = 15
-ZONE_RESET_HOLD_TIME = 20
-MEDIAN_LOOKBACK = 21312
-#================================
+# adapt this to the price of the coin in trade
+# 
+ZONE_BUFFER = 27.11          # $ 27.11 no act zone
+SELL_ZONE_EXTRA = 40.11      # $ 40.11 detect/sell zone above buffer
+BUY_ZONE_EXTRA = 40.11       # $ 40.11 detect/buy zone below buffer
+PRICE_CHECK_INTERVAL = 15    # calls api every 15 seconds -->keep bellow 60<--
+ZONE_RESET_HOLD_TIME = 20    # price tick leaving zones longer than 20sec machine recalculates zones 
+MEDIAN_LOOKBACK = 21312      # 300 is equivilant to 5 hours of every 1 min tick count hours in euqations not minutes trust that they are regestered by the machine
+# =====================================
 
 # ======= AVG-ENTRY TUNING =======
 BUY_AT_LOWEST_AVERAGE = True
