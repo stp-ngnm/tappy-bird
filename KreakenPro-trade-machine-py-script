@@ -42,7 +42,7 @@ INVESTMENT_AMOUNT = 20.00       # enter any amount limmited by kraken
 FEE_RATE = 0.0026               # 0.26% dont change this its a dummy switch
 BOND_DECIMALS = 8               # the number of decimals below 0 its capable of detecting
 MIN_PROFIT = 0.25               # configure to compare with the allocated investment amount
-STOP_LOSS_PCT = 0.007           # 0.7% stop-loss 
+STOP_LOSS_PCT = 0.1000           # 1.00% stop-loss 
 # =================================
 
 # ======= AVG-ENTRY TUNING =======
