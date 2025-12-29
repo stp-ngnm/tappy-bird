@@ -4,6 +4,53 @@ BTC is still up over $100K
 the figures just cant match every time
 so youll have to do that part yourslef
 
+you can fix your range settings byt using
+
+the trade pair) TRADING_PAIR  notes: 
+any capitalist understands you cant always make money routing for you politics
+youll have to choose a compay that suits them; then whats the world to think of those commers
+regardless theres less time investing in relying on the compitance of that structure. being crypto
+the kraken server this machine is compatible has a catigorisor for infastructual investing
+otherwise id pick any coin... BTC, ETH, ZEC, XMR... COMP works really well with the machine 
+                                   just to name a few 
+
+the allocated funds) INVESTMENT_AMOUNT  notes: 
+i find that kraken has a fee percentage that the dummy swtich 
+both makes a $0.03 misscount for and cant correctly account for beyond that
+so in place of playing with the switch or eddeting the script i found
+the machine relyably makes accounted $0.30-$1.10 trades from any input
+but because of the trade fee is often eats a substancial ammout of any gains under $1
+so to beat that what i had to do was pump more money in wating for larger price fluxes
+or use smaller ammounts of money shrinking the fee rate
+                       investment ammount $30 and bellow shrinks the fee to $0.11 and lower (minimum $5)
+
+the no act zone) ZONE_BUFFER  notes:          
+this is an undercomplicated overly complicated part of the basic function of the machine
+immagine it next to its buy and sale zones like this
+_____________________________
+_____________sale____________
+no act zone
+------------Buy--------------
+-----------------------------
+
+the no act zone has to match the fluctuations of the market chart to your comfort
+based on it the machine will set its zones from the tracked median price 
+baced on the granted ammount of ticker data
+
+you can set it to track and trade at any interval of fluctuation 
+in regard to that flux's change time and the machines oprotunistic derterminate
+
+the under side and over top buffer spaces) BUY_ZONE_EXTRA/SELL_ZONE_EXTRA  notes:
+set this to be between $5-$10 above the 24 hour high and reflecting for the lows
+   
+the ticker data) MEDIAN_LOOKBACK  notes:     
+like a marker tip differing sizes make differing shapes
+for a more immediate reaction to the market keep it bellow 24hours of data 
+300 to match 5 hours of every 1 minute ticker
+for a better grip on what could happen i refuse to put it bellow several weeks of data
+42624-21312 to match i forget how many days but the math is the same
+42624 devided into 60 = the amount of hours. devided into 24 = the ammount of days represented
+
 # ======== KRAKEN API CREDENTIALS ========
 # the tool used to make kraken api keys is in the settings on the krakenpro >website< >browser only< 
 # keep keys in quotes "xxxxxxx"
