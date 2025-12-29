@@ -39,10 +39,10 @@ API_SECRET = "YOUR-API-SECRET-KEY"
 # ======== TRADING CONFIG ========
 TRADING_PAIR = "ZECUSD"         # change by entering crypto-base curency (like this "AAABBB")
 KRAKEN_PAIR = TRADING_PAIR
-INVESTMENT_AMOUNT = 20.00       # enter any amount limmited by kraken
+INVESTMENT_AMOUNT = 28.28       # enter any amount limmited by kraken
 FEE_RATE = 0.0026               # 0.26% dont change this its a dummy switch
 BOND_DECIMALS = 8               # the number of decimals below 0 its capable of detecting
-MIN_PROFIT = 0.25               # configure to compare with the allocated investment amount
+MIN_PROFIT = 0.18               # configure to compare with the allocated investment amount
 STOP_LOSS_PCT = 0.1000           # 1.00% stop-loss 
 # =================================
 
@@ -64,7 +64,7 @@ API_VERSION = "0"
 # ======== ZONE CONFIGURATION ========
 # adapt this to the price of the coin in trade
 # 
-ZONE_BUFFER = 27.11          # $ 27.11 no act zone
+ZONE_BUFFER = 1.11          # $ 1.11 no act zone
 SELL_ZONE_EXTRA = 40.11      # $ 40.11 detect/sell zone above buffer
 BUY_ZONE_EXTRA = 40.11       # $ 40.11 detect/buy zone below buffer
 PRICE_CHECK_INTERVAL = 15    # calls api every 15 seconds -->keep bellow 60<--
