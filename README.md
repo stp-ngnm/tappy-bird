@@ -4,6 +4,10 @@ Before placing auto market orders. Buys at tracked average lows and sells at tra
 Granted the orderbook depth indicates acceptable slippage/liquidity 
 And all other prerquiseted qualifications are met Slippage, Min profit...zoning laws...
 
+remember these things can take days to play correctly and can be both exiting and upsetting
+and that ulltimatly by putting money into the app youve made them into 'play bucks' untill withdrawn
+
+
 its made to be used in a $60 android trackphone you can get from the wallmart or where ever
 BUY one... install termux terminal emulator on it
 and get to affassittaitin the machine; Would ya ( - . - )
