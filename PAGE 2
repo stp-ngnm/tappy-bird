@@ -1,7 +1,7 @@
 step one is in the read me face page
 
-1-buy an android or desktop-
-budget devices are what this is about
+1-buy an android laptop or desktop-
+budget devices and basic educational information are what this is about
 there are 0 hardwear requirments other than that you have some to work with
 
 2-make a kraken account-
@@ -22,6 +22,30 @@ api settings are not avalable in the app
 start by installing these listed dependancies into the terminal
 
 -OPTION 1) Debian (apt) Machine learning modle /and/or/ machine script
+
+youll need the device of your choosing
+if a laptop/desktop you might want to get 
+an external hardrive to use with the boot stick 
+or a second usb stick to install the boot into in place of the hardrive 
+32gb+ usb booter not reccomended
+i have a laptop with 2 internal hardrives cost me 200 bucks and some scrapping
+
+so unless your comfortable with chaging your computer to linux forever
+make some sticks
+
+ive never done this from a chrome book but im sure theres recourses online for those steps
+uless chrome has gone so restricing as to not allow bios altercating
+
+in a standard windows computer youll have to download
+one of either -belena etcher- or -rufus-
+these are disk immage writers
+next youll have to install the debian distrabution of your choice
+ubuntu, kali purple(scrolldown), debian straigt up... ect...
+then use those writers to flash it to a usb drive and reboot your computer from the drive
+install the operating system to your selected drive and reboot on that device
+
+now that you have a debian system operating
+
   - Install system packages:
 i start with fire wall and vpn and a password manager
 sudo apt install ufw
@@ -51,17 +75,20 @@ sudo apt update && sudo apt install -y pip pipx git tmux curl wget build-essenti
 -OPTION 2 Andriod Termux)
 you could use google play if you dont personaly give a shit about trackers and data privacy
 or you could do what i do
-install f-droid's apk from the internet install termux and tools allong with the aurora store
-arrora is where youll get things like the kraken app - the browser you might use - riseup vpn ect
+install f-droid's apk from the internet 
+use it to install termux and its api tool kit allong with the aurora store from there
+arrora is where youll get things like the kraken app...
+- the browser you might use - riseup vpn...
 
 ----ways to avoid trackers----geting the f-droid apk---- 
-firefox, duckduckgo or tor + extensions ublock & privacy badger 
+firefox, duckduckgo, tor + extensions ublock, privacy badger, clearurls 
 
 
--when you have the terminal in your posetion 
+-when you have the terminal alone in your posetion 
 youll have to install the dependacies
-and use the same nano file for
-you should save it to open it a second time and set up its configurations/add your api keys
+and use the same nano file format in termux
+you should save it oncen to open it a second time 
+to set up the machines configurations and your api keys
 that way theres no slipping in set up
 ctl+x and y - enter to save and exit the file 
 type -> python <file name> to exicute
