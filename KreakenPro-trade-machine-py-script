@@ -38,10 +38,10 @@ API_SECRET = "YOUR_API_SECRET_HERE"
 # ======== TRADING CONFIG ========
 TRADING_PAIR = "XXXXUSD"         # change by entering crypto-base curency (like this "AAABBB")
 KRAKEN_PAIR = TRADING_PAIR
-INVESTMENT_AMOUNT = 20.00       # enter any amount limmited by kraken
-FEE_RATE = 0.0026               # 0.26% dont change this its a dummy switch
+INVESTMENT_AMOUNT = 22.22       # enter any amount limmited by kraken
+FEE_RATE = 0.00365               # 0.36% dont change this its a dummy switch
 BOND_DECIMALS = 8               # the number of decimals below 0 its capable of detecting
-MIN_PROFIT = 0.18               # configure to compare with the allocated investment amount
+MIN_PROFIT = 0.20               # configure to compare with the allocated investment amount
 STOP_LOSS_PCT = 0.1000           # 1.00% stop-loss 
 # =================================
 
@@ -63,12 +63,12 @@ API_VERSION = "0"
 # ======== ZONE CONFIGURATION ========
 # adapt this to the price of the coin in trade
 # 
-ZONE_BUFFER = 1.2            # $ 1.2 no act zone
-SELL_ZONE_EXTRA = 33.33      # $ 33.33 detect/sell zone above buffer
-BUY_ZONE_EXTRA = 33.33       # $ 33.33 detect/buy zone below buffer
+ZONE_BUFFER = 3.88            # $ 1.2 no act zone
+SELL_ZONE_EXTRA = 23.33      # $ 33.33 detect/sell zone above buffer
+BUY_ZONE_EXTRA = 23.33       # $ 33.33 detect/buy zone below buffer
 PRICE_CHECK_INTERVAL = 15    # calls api every 15 seconds -->keep bellow 60<--
 ZONE_RESET_HOLD_TIME = 20    # price tick leaving zones longer than 20sec machine recalculates zones 
-MEDIAN_LOOKBACK = 360        # 300 is equivilant to 5 hours of every 1 min tick
+MEDIAN_LOOKBACK = 1740        # 300 is equivilant to 5 hours of every 1 min tick
 # =====================================
 
 # Trading state
