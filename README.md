@@ -17,13 +17,14 @@ and get to affassittaitin the machine; Would ya ( - . - )
 ---takes no more storage than dependacies and py script all looging and data handling is self suficiant
 
 the easiest way to deploy this machine is to go to its file shown above
-copy paste it into a nano file in your termux emulator and save it
+copy paste it into a nano file by typing nano <filename> in your termux emulator 
+save it using ctrl+x  | y  | enter | edit the file the same way its made
 once done you can start your personal edits to its configurations
 details for configuration are commented out in script
-better directions are found in the file title step2
+better directions are found in the file title page 2
 
 # NOTE for debian users
-you can use either of the 2 options in a gnome terminal
+you can use either of the 2 options in a gnome terminals
 
 # NOTE for android --- termux users
 there are some apps you can use if you find yourself concernd with google instalation and activity trackers
