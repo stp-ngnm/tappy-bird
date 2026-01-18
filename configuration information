@@ -28,9 +28,15 @@ the no act zone) ZONE_BUFFER  notes:
 this is an undercomplicated overly complicated part of the basic function of the machine
 immagine it next to its buy and sale zones like this
 _____________________________
+
+
 _____________sale____________
+
 no act zone
+
 ------------Buy--------------
+
+
 -----------------------------
 
 the no act zone has to match the fluctuations of the market chart to your comfort
@@ -179,8 +185,9 @@ and that ulltimatly by putting money into the app youve made them into 'play buc
 
 --------------------------------------------------------------------------------------------
 
-KRAKEN_PAIR = "ZECUSD"
-INVESTMENT_AMOUNT = 20       # enter any amount limmited by kraken
+KRAKEN_PAIR = "ZEC|XMR|LTC|USD" you cant trade multiple at a time sadly
+
+INVESTMENT_AMOUNT = 23.23       # enter any amount limmited by kraken
 FEE_RATE = 0.00365               # 0.0036% dont change this its a dummy switch
 BOND_DECIMALS = 8               # the number of decimals below 0 its capable of detecting
 MIN_PROFIT = 0.20               # configure to compare with the allocated investment amount
