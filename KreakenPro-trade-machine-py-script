@@ -32,7 +32,7 @@ API_SECRET = "YOUR_API_SECRET_HERE"
 # ========================================
 
 # ======== TRADING CONFIG ========
-TRADING_PAIR = "XXXXUSD"         # change by entering crypto-base currency (like this "AAABBB")
+TRADING_PAIR = "XMRUSD"         # change by entering crypto-base currency (like this "AAABBB")
 KRAKEN_PAIR = TRADING_PAIR
 INVESTMENT_AMOUNT = 22.22       # enter any amount limited by kraken
 FEE_RATE = 0.0036               # FIXED: 0.36% Kraken Fee (Entry + Exit)
@@ -681,7 +681,7 @@ while True:
         all_prices.append(price)
         ohlc_data = get_ohlc(KRAKEN_PAIR, interval=1, lookback=20)
         # FIX: Variable name was truncated in previous version
-        if not ohlc_
+        if not ohlc_data:
             print(f"{COLOR_RED}No OHLC data, skipping tick.{COLOR_RESET}")
             time.sleep(PRICE_CHECK_INTERVAL)
             continue
