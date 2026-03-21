@@ -5,19 +5,19 @@ budget devices and basic educational information are what this is about
 there are 0 hardwear requirments other than that you have some to work with
 constant wifi connection even if it means leaving a device hidden in public
 and one of the 3 devices listed above
-im deaming of an app for the ui shell 
-and a hard drive i can disconnect from a diplay to leave somewhere
+im dreaming of an app for a ui shell 
+and a hard drive i can disconnect from a display to leave plugged in somewhere
 
 
 2-make a kraken account-
 
-(first get comfortable make an account 
+(first get comfortable make an account) 
 its easier to add credencials in the app than on the site
 but only the site has api settings
- (you can download the app make an account
-add your cradentcials to attain funding
-and then log into a browser for api callers and keys
-first close all the data pop ups you dont want to keep
+ (you can download the app make and account; add your cradentcials, attain funding)
+Then log into a browser after for api callers and keys
+when on the site you should first close all the data pop ups you dont want to keep
+or theyll slow down your computer...
 then open settings in the top right of the page
 on the far right side of the tool bar youll see connections and api
 click it and make a few api sets saving the keys in a text file each time
@@ -33,13 +33,24 @@ youll need the device of your choosing
 if a laptop/desktop
 make sure this isnt you personal device or that you confortably can alter you personal device 
 so unless your comfortable with chaging your computer to linux forever
-make some sticks
+make some sticks by installing the iso from 
+for new users: https://ubuntu.com/download/desktop
+for pen testers: https://www.kali.org/get-kali/#kali-installer-images
+for i dont know why you picked this one...
+there must be something wrong with you...
+https://www.qubes-os.org/
 
-alternativly an external hardrive to use with the boot stick
+and loading it into a usb to reboot your computer to 
+by entering the bios menu and selecting the drive
+youll be prompted with a directory asking what part of its kernel you want activated
+click the install option and set up the linux operating system
+
+alternativly an external hardrive to use as a the boot stick
 or a second usb stick to install the boot into 
 in place of the internal hardrive should be fine
-32gb- usb booter not reccomended if youre putting the whole computer into a stick
+-32gb usb booter not reccomended if youre putting the whole computer into a stick use 64+
 i have a laptop with 2 internal hardrives cost me 200 bucks and some scrapping
+but good parts Are hard to come by
 
 ive never done this from a chrome book but im sure theres recourses online for those steps
 unless chrome has gone so restricing as to not allow bios altercating
@@ -48,15 +59,25 @@ so in a standard windows computer youll have to download
 one of either -belena etcher- or -rufus-
 these are disk immage writers
 next youll have to install the debian distrabution of your choice
-ubuntu, kali purple(scrolldown), debian straigt up... ect...
-then use those writers to flash it to a usb drive and reboot your computer from the drive
+ubuntu, kali purple(scrolldown), qubesOS, debian straigt up... ect...
+then use those writers to flash its iso to a usb drive and reboot your computer from the drive
 install the operating system to your selected drive 
 and reboot the computer on that device youve made
 
-now that you have a debian system operating
+lvm encryptions are recomended 
+and while in bios
+you should also make an admin password for your computer
+both to keep out unwanted users
+as would be your regular user password
+the differance being security-accesablility and permitions
+admin lock - LVM disk crypt - user access
+this would be tripple layer security 
+---on your home device not IP---
 
-  - Install system packages:
-i start with fire wall and vpn and a password manager
+now that you have a debian system operating ...ubuntu...
+
+  - Install system packages in terminal:
+i start with fire wall, vpn and a password manager
 sudo apt install ufw
 sudo ufw enable
 sudo ufw default allow out going 
@@ -79,12 +100,14 @@ sudo apt update && sudo apt install -y pip pipx git tmux curl wget build-essenti
 
     sudo apt install python3-sklearn   #for the ML modle#
 
-and then make the nano file by typing nano file name into your terminal
-copy past the script from either script page into the nano file
-save it and then edit the file
-start it by typing -python filename |or sometimes| -python3 filename
+and then make the nano file by typing nano <file name> into your terminal
+copy paste the script from either script page into the nano file
+save it | ctrl+x | y | enter |
+and then edit the file to add api keys and fix parameters
 
--OPTION 2 Andriod Termux)
+start it by typing python filename |or sometimes| python3 filename
+
+-OPTION 2 Andriod Termux) mostly the same much easier
 you could use google play if you dont personaly give a shit about trackers and data privacy
 or you could do what i do
 install f-droid's apk from the internet 
@@ -96,14 +119,8 @@ arrora is where youll get things like the kraken app...
 firefox, duckduckgo, tor + extensions ublock, privacy badger, clearurls 
 
 
--when you have the terminal alone in your posetion 
+-when you have the termux terminal alone in your posetion 
 youll have to install the dependacies
-and use the same nano file format in termux
-you should save it once to open it a second time 
-to set up the machines configurations and your api keys
-that way theres no slipping in set up
-ctl+x and y - enter to save and exit the file 
-type -> python <file name> to exicute
 
 pkg update -y && pkg upgrade
 
@@ -113,25 +130,29 @@ pkg install -y python git tmux curl wget clang make openssl-tool libffi make cma
     pip install requests 
     pip install numpy
     pip install pandas
- 
-paste the machine into a nano file by typing in your terminal 
-nano <filename> 
 
-and then run the script by using the command in your terminal
+in termux make the nano file by typing nano <file name> into your terminal
+copy paste the script from the non ML page into the nano file
+save it using | ctrl+x | y | enter | 
+and then edit the file to add api keys and fix parameters
 
-python <filename>
+start it by typing python filename
 
-4-check the terminal and the account information
--check terminal for dependancies/updates
--check the nano file for api keys/the machines configurations and funding
+step 4)
+-check the terminal 
+pkg update
+pkg upgrade
+-look over your kraken account information
+-check the nano file for api keys/the machines configurations
 
-5-allocate on your kraken account $20+ to the machine-
+step 5)
+-allocate on your kraken account $20+ to the machine-
 by leaving it accessably in the kraken account as your base curency
 its good to make sure you can pay for more than the coin is worth
-when started let it run for a day keep make sure to keep an eye on it
-if it fails make sure the market you pick isnt also in a decline
+when started let it run for a day make sure to keep an eye on it
+if it fails see that the market you pick isnt in a decline
 and check the figures in the nano file offered in the configuration information tab 
-to be sure they have good values
+to be sure they values to match the  chosen market
 saddly i cant personaly make a range that works every time 
 because where LTC right now is 85-95
 BTC is still up over 100K
@@ -148,7 +169,8 @@ this machine is known to turn over 25-40 cent trades once or twice an hour
 this depends fully on the market flux; and the ratio (coin price/spend limit)
 
 --> do not close the terminal unless you want to terminate the session With the machine <--
---> check setting in linux
+--> using ctrl+c amid run will pause function q | enter will resume
+--> check setting in linux for sleep timmer instances
 --> use wake lock in termux by scrolling down from the top
 
 ------------------------------------------------------------
