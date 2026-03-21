@@ -1,4 +1,4 @@
-# cats.md — ML-Enhanced Depth-Aware Trading Bot (Final Fixed Version)
+# cats.md — Machine Learning -Enhanced Depth-Aware Trading Bot (Final Fixed Version)
 import numpy as np
 import requests
 import time
@@ -54,7 +54,7 @@ API_URL = "https://api.kraken.com"
 API_VERSION = "0"
 
 # ======== ZONE CONFIGURATION ========
-ZONE_BUFFER = 3.88
+ZONE_BUFFER = 8.88
 SELL_ZONE_EXTRA = 20.11
 BUY_ZONE_EXTRA = 20.11
 PRICE_CHECK_INTERVAL = 15
@@ -98,7 +98,7 @@ ML_TIMING_MAX_DEPTH = 8
 ML_TIMING_MIN_SAMPLES_SPLIT = 5
 ML_ALLOW_ZONE_OVERRIDE = True
 ML_REQUIRE_TIMING_SCORE = 0.65
-ML_REQUIRE_TREND_CONFIRMATION = False
+ML_REQUIRE_TREND_CONFIRMATION = True
 ML_USE_ENSEMBLE_VOTING = True
 ML_PATTERN_WEIGHT = 0.30
 ML_PRICE_PRED_WEIGHT = 0.25
