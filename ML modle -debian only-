@@ -1,4 +1,5 @@
-# cats.md — ML-Enhanced Depth-Aware Trading Bot (Final Integration)
+# cats.md — ML-Enhanced Depth-Aware Trading Bot (Final Integrated v1.0)
+# Combines: L.md Baseline + Loser.txt ML + DepthChartAnalyzer + Color Output
 import numpy as np
 import requests
 import time
@@ -35,18 +36,18 @@ API_SECRET = "YOUR_API_SECRET_HERE"
 TRADING_PAIR = "XMRUSD"
 KRAKEN_PAIR = TRADING_PAIR
 INVESTMENT_AMOUNT = 22.22
-FEE_RATE = 0.0036
+FEE_RATE = 0.0036  # FIXED: 0.36% Kraken Fee
 BOND_DECIMALS = 8
 MIN_PROFIT = 0.20
-STOP_LOSS_PCT = 0.0100
+STOP_LOSS_PCT = 0.0100  # 1.00% stop-loss
 
 # ======= AVG-ENTRY TUNING ========
 BUY_AT_LOWEST_AVERAGE = True
 SELL_AT_HIGHEST_AVERAGE = True
-ENTRY_RANGE_PCT = 0.007
+ENTRY_RANGE_PCT = 0.007  # ±0.7% acceptance around averages
 
 # ======= DEPTH / SLIPPAGE CONFIG ========
-MAX_SLIPPAGE_PCT = 0.0007
+MAX_SLIPPAGE_PCT = 0.0007  # FIXED: 0.07% Liquidity Guard
 MIN_LIQUIDITY_RATIO = 0.6
 ORDERBOOK_DEPTH_LEVELS = 50
 
@@ -80,7 +81,6 @@ ML_VOLATILITY_PRED_HORIZON = 4
 ML_MIN_CONFIDENCE = 0.62
 ML_HIGH_CONFIDENCE = 0.73
 ML_MAX_RISK_THRESHOLD = 0.76
-ML_CRITICAL_RISK_THRESHOLD = 0.80
 ML_ALLOW_ZONE_OVERRIDE = True
 ML_REQUIRE_TREND_CONFIRMATION = False
 ML_USE_ENSEMBLE_VOTING = True
@@ -120,6 +120,7 @@ class DepthChartAnalyzer:
     """
     HARDCODED LOGIC: Analyzes order book depth for trading signals.
     Runs BEFORE ML evaluation in the main loop.
+    Replaces detect_market_regime() from original Loser.txt
     """
     def __init__(self):
         self.depth_history = deque(maxlen=50)
@@ -172,8 +173,6 @@ class DepthChartAnalyzer:
             'spread_pct': spread_pct,
             'bid_volume_5': bid_volume_5,
             'ask_volume_5': ask_volume_5,
-            'bid_volume_20': bid_volume_20,
-            'ask_volume_20': ask_volume_20,
             'depth_gradient_bid': self.depth_gradient['bid'],
             'depth_gradient_ask': self.depth_gradient['ask'],
             'liquidity_walls': self.liquidity_walls.copy()
@@ -213,15 +212,13 @@ class DepthChartAnalyzer:
         # Bid walls (support) - orders > 3x average
         self.liquidity_walls['bid'] = [
             {'price': p, 'volume': v, 'strength': v / avg_bid_vol}
-            for p, v in bids[:20]
-            if v > (avg_bid_vol * 3.0)
+            for p, v in bids[:20] if v > (avg_bid_vol * 3.0)
         ][:3]
         
         # Ask walls (resistance)
         self.liquidity_walls['ask'] = [
             {'price': p, 'volume': v, 'strength': v / avg_ask_vol}
-            for p, v in asks[:20]
-            if v > (avg_ask_vol * 3.0)
+            for p, v in asks[:20] if v > (avg_ask_vol * 3.0)
         ][:3]
     
     def _generate_depth_signal(self, imbalance_ratio, spread_pct, avg_spread):
@@ -251,19 +248,15 @@ class DepthChartAnalyzer:
     
     def _empty_depth_signal(self):
         return {
-            'imbalance_ratio': 0.0,
-            'spread_pct': 0.0,
-            'avg_spread': 0.0,
-            'bid_volume_5': 0.0,
-            'ask_volume_5': 0.0,
+            'imbalance_ratio': 0.0, 'spread_pct': 0.0, 'avg_spread': 0.0,
+            'bid_volume_5': 0.0, 'ask_volume_5': 0.0,
             'depth_signal': {'signal': 'NEUTRAL', 'confidence': 0.0, 'imbalance': 0.0},
-            'gradient_bid': 0.0,
-            'gradient_ask': 0.0,
+            'gradient_bid': 0.0, 'gradient_ask': 0.0,
             'liquidity_walls': {'bid': [], 'ask': []}
         }
     
     def get_depth_features_for_ml(self):
-        """Extract depth features for ML model input"""
+        """Extract depth features for ML model input (10 dimensions)"""
         if len(self.depth_history) < 5:
             return np.zeros(10)
         
@@ -852,6 +845,11 @@ def config_monitor():
                     print(f"{COLOR_CYAN}Buy: [{zone_machine.buy_zone[0]:.4f}-{zone_machine.buy_zone[1]:.4f}]{COLOR_RESET}")
                     print(f"{COLOR_CYAN}Neutral: [{zone_machine.neutral_zone[0]:.2f}-{zone_machine.neutral_zone[1]:.2f}]{COLOR_RESET}")
                     print(f"{COLOR_CYAN}Sell: [{zone_machine.sell_zone[0]:.4f}-{zone_machine.sell_zone[1]:.4f}]{COLOR_RESET}")
+                
+                # Print Depth Status
+                print(f"\n{COLOR_BLUE}--- Depth Analysis ---{COLOR_RESET}")
+                print(f"{COLOR_BLUE}Imbalance Ratio: {depth_analyzer.depth_history[-1]['imbalance_ratio'] if depth_analyzer.depth_history else 'N/A'}{COLOR_RESET}")
+                print(f"{COLOR_BLUE}Signal: {depth_analyzer.depth_history[-1]['depth_signal']['signal'] if depth_analyzer.depth_history else 'N/A'}{COLOR_RESET}")
             else:
                 print(f"{COLOR_YELLOW}Unknown command{COLOR_RESET}")
         except Exception as e:
@@ -1145,7 +1143,7 @@ while True:
             print(f"{COLOR_CYAN}Neutral: [{zone_machine.neutral_zone[0]:.2f}-{zone_machine.neutral_zone[1]:.2f}]{COLOR_RESET}")
             print(f"{COLOR_CYAN}Sell: [{zone_machine.sell_zone[0]:.4f}-{zone_machine.sell_zone[1]:.4f}]{COLOR_RESET}")
         
-        # Depth Info (Optional Debug)
+        # Depth Info
         if DEBUG:
             print(f"{COLOR_BLUE}Depth Imbalance: {depth_analysis['imbalance_ratio']:.4f} | Signal: {depth_analysis['depth_signal']['signal']}{COLOR_RESET}")
         # >>> END TICKER PRINT BLOCK <<<
