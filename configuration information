@@ -8,25 +8,37 @@ you can fix your range settings byt using
 
 the trade pair) TRADING_PAIR  notes: 
 any capitalist understands you cant always make money routing for you politics
-youll have to choose a compay that suits them; then whats the world to think of those commers
-regardless theres less time investing in relying on the compitance of that structure. being crypto
-the kraken server this machine is compatible has a catigorisor for infastructual investing
-otherwise id pick any coin... BTC, ETH, ZEC, XMR... COMP works really well with the machine 
-                                   just to name a few 
+youll have to choose a compay or product line that suits them and your intrest 
+then whats the world to think of those commers
+regardless theres more time investing reliance on the compitance of that structure. being crypto
+the kraken server this machine is compatible with has a catigorisor for that
+otherwise id pick any coin... BTC, ETH, ZEC, XMR...
+TRADING_PAIR = "BTCUSD"         # change by entering crypto-base curency (like this "AAABBB")
+you can flip them use it for swaps whatever but its gotta fit a pair or it wont work
+
 
 the allocated funds) INVESTMENT_AMOUNT  notes: 
-i find that kraken has a fee percentage that the dummy swtich 
-both makes a $0.03 misscount for and cant correctly account for beyond that
-so in place of playing with the switch or eddeting the script i found
-the machine relyably makes accounted $0.30-$1.10 trades from any input
-but because of the trade fee is often eats a substancial ammout of any gains under $1
-so to beat that what i had to do was pump more money in wating for larger price fluxes
-or use smaller ammounts of money shrinking the fee rate
-                       investment ammount $30 and bellow shrinks the fee to $0.11 and lower (minimum $5)
+INVESTMENT_AMOUNT = 20.00       # enter any amount limmited by kraken
+i find that kraken has a fee percentage that the dummy switch
+FEE_RATE = 0.00365               # 0.0036% dont change this its a dummy switch
+the first make had bad math i doubt anyone will ever know about
+its been fixed
+
+the problem was with the way fee rates are understood and accounted for
+theres the same fee rate 0.26%-0.36% in entries and exits 
+that at first was being deducted from the void of avalabile funds 
+but not realy just mathamaticaly
+                       investment ammount $30 and bellow shrinks the fee to $0.11 and lower (minimum $5 in most markets)
+
+i have not tested this 
+in markets that sit lower than $150 
+with flux ranges less than $8
+and i use less than $20 in trades
+
 
 the no act zone) ZONE_BUFFER  notes:          
 this is an undercomplicated overly complicated part of the basic function of the machine
-immagine it next to its buy and sale zones like this
+immagine it next to its buy and sale zones like this 
 _____________________________
 
 
@@ -38,7 +50,6 @@ no act zone
 
 
 -----------------------------
-
 the no act zone has to match the fluctuations of the market chart to your comfort
 based on it the machine will set its zones from the tracked median price 
 baced on the granted ammount of ticker data
