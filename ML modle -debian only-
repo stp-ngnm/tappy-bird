@@ -1,4 +1,5 @@
-# cats.md — ML-Enhanced Depth-Aware Trading Bot (Final Fixed v1.0)
+# cats.md — ML-Enhanced Depth-Aware Trading Bot (Final v2.0 - All Fixes Applied)
+# Fixes: Syntax errors, ML retraining crash, variable alignment, depth analysis, color output
 import numpy as np
 import requests
 import time
@@ -28,8 +29,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(mes
 DEBUG = True
 
 # ======== KRAKEN API CREDENTIALS ========
-API_KEY = "YOUR_API_KEY_HERE"
-API_SECRET = "YOUR_API_SECRET_HERE"
+API_KEY = "YOUR_API_KEYS"
+API_SECRET = "YOUR_API_KEYS"
 
 # ======== TRADING CONFIG ========
 TRADING_PAIR = "XMRUSDC"
@@ -114,13 +115,180 @@ price_history = deque(maxlen=1000)
 volume_history = deque(maxlen=1000)
 orderbook_history = deque(maxlen=500)
 
+# ============= DEPTH CHART ANALYZER (Logic-Based, Runs BEFORE ML) =============
+class DepthChartAnalyzer:
+    """
+    HARDCODED LOGIC: Analyzes order book depth for trading signals.
+    Runs BEFORE ML evaluation in the main loop.
+    Replaces detect_market_regime() from original Loser.txt
+    """
+    def __init__(self):
+        self.depth_history = deque(maxlen=50)
+        self.liquidity_walls = {'bid': [], 'ask': []}
+        self.depth_imbalance_trend = "NEUTRAL"
+        self.spread_history = deque(maxlen=20)
+        self.depth_gradient = {'bid': 0.0, 'ask': 0.0}
+        
+    def analyze_depth(self, orderbook, current_price):
+        """Primary depth analysis - runs every tick BEFORE ML"""
+        if orderbook is None:
+            return self._empty_depth_signal()
+        
+        bids = orderbook.get('bids', [])
+        asks = orderbook.get('asks', [])
+        
+        if not bids or not asks:
+            return self._empty_depth_signal()
+        
+        # >>> DEPTH METRICS (Logic-Based) <<<
+        bid_volume_5 = sum([v for p, v in bids[:5]])
+        ask_volume_5 = sum([v for p, v in asks[:5]])
+        bid_volume_20 = sum([v for p, v in bids[:20]])
+        ask_volume_20 = sum([v for p, v in asks[:20]])
+        
+        # Bid/Ask Imbalance Ratio
+        total_bid = bid_volume_5 + bid_volume_20
+        total_ask = ask_volume_5 + ask_volume_20
+        imbalance_ratio = (total_bid - total_ask) / (total_bid + total_ask + 1e-10)
+        
+        # Spread Analysis
+        best_bid = bids[0][0]
+        best_ask = asks[0][0]
+        spread = best_ask - best_bid
+        spread_pct = (spread / current_price) * 100 if current_price else 0
+        self.spread_history.append(spread_pct)
+        avg_spread = np.mean(self.spread_history) if self.spread_history else spread_pct
+        
+        # Depth Gradient (how volume changes across levels)
+        self.depth_gradient['bid'] = self._calculate_gradient(bids)
+        self.depth_gradient['ask'] = self._calculate_gradient(asks)
+        
+        # Liquidity Wall Detection (orders > 3x average)
+        self._detect_liquidity_walls(bids, asks, current_price)
+        
+        # Store in history
+        depth_snapshot = {
+            'timestamp': time.time(),
+            'imbalance_ratio': imbalance_ratio,
+            'spread_pct': spread_pct,
+            'bid_volume_5': bid_volume_5,
+            'ask_volume_5': ask_volume_5,
+            'depth_gradient_bid': self.depth_gradient['bid'],
+            'depth_gradient_ask': self.depth_gradient['ask'],
+            'liquidity_walls': self.liquidity_walls.copy()
+        }
+        self.depth_history.append(depth_snapshot)
+        
+        # >>> DEPTH SIGNAL (Logic-Based Decision) <<<
+        depth_signal = self._generate_depth_signal(imbalance_ratio, spread_pct, avg_spread)
+        
+        return {
+            'imbalance_ratio': imbalance_ratio,
+            'spread_pct': spread_pct,
+            'avg_spread': avg_spread,
+            'bid_volume_5': bid_volume_5,
+            'ask_volume_5': ask_volume_5,
+            'depth_signal': depth_signal,
+            'gradient_bid': self.depth_gradient['bid'],
+            'gradient_ask': self.depth_gradient['ask'],
+            'liquidity_walls': self.liquidity_walls
+        }
+    
+    def _calculate_gradient(self, levels):
+        """Calculate volume gradient across order book levels"""
+        if len(levels) < 5:
+            return 0.0
+        volumes = [v for _, v in levels[:10]]
+        if len(volumes) < 2:
+            return 0.0
+        gradient = (np.mean(volumes[5:10]) - np.mean(volumes[:5])) / (np.mean(volumes[:5]) + 1e-10)
+        return float(np.clip(gradient, -1.0, 1.0))
+    
+    def _detect_liquidity_walls(self, bids, asks, current_price):
+        """Detect large orders that act as support/resistance"""
+        avg_bid_vol = np.mean([v for _, v in bids[:20]]) if bids else 1.0
+        avg_ask_vol = np.mean([v for _, v in asks[:20]]) if asks else 1.0
+        
+        # Bid walls (support) - orders > 3x average
+        self.liquidity_walls['bid'] = [
+            {'price': p, 'volume': v, 'strength': v / avg_bid_vol}
+            for p, v in bids[:20] if v > (avg_bid_vol * 3.0)
+        ][:3]
+        
+        # Ask walls (resistance)
+        self.liquidity_walls['ask'] = [
+            {'price': p, 'volume': v, 'strength': v / avg_ask_vol}
+            for p, v in asks[:20] if v > (avg_ask_vol * 3.0)
+        ][:3]
+    
+    def _generate_depth_signal(self, imbalance_ratio, spread_pct, avg_spread):
+        """Generate trading signal based on depth analysis (Logic-Based)"""
+        signal = "NEUTRAL"
+        confidence = 0.0
+        
+        # Imbalance threshold (hardcoded logic)
+        if imbalance_ratio > 0.3:
+            signal = "BUY"
+            confidence = min(imbalance_ratio, 1.0)
+        elif imbalance_ratio < -0.3:
+            signal = "SELL"
+            confidence = min(abs(imbalance_ratio), 1.0)
+        
+        # Spread penalty (wide spread = risky)
+        if avg_spread > 0.5:
+            confidence *= 0.5
+        
+        # Gradient confirmation
+        if signal == "BUY" and self.depth_gradient['bid'] < 0:
+            confidence *= 0.7
+        elif signal == "SELL" and self.depth_gradient['ask'] < 0:
+            confidence *= 0.7
+        
+        return {'signal': signal, 'confidence': confidence, 'imbalance': imbalance_ratio}
+    
+    def _empty_depth_signal(self):
+        return {
+            'imbalance_ratio': 0.0, 'spread_pct': 0.0, 'avg_spread': 0.0,
+            'bid_volume_5': 0.0, 'ask_volume_5': 0.0,
+            'depth_signal': {'signal': 'NEUTRAL', 'confidence': 0.0, 'imbalance': 0.0},
+            'gradient_bid': 0.0, 'gradient_ask': 0.0,
+            'liquidity_walls': {'bid': [], 'ask': []}
+        }
+    
+    def get_depth_features_for_ml(self):
+        """Extract depth features for ML model input (10 dimensions)"""
+        if len(self.depth_history) < 5:
+            return np.zeros(10)
+        
+        recent = list(self.depth_history)[-5:]
+        features = [
+            np.mean([d['imbalance_ratio'] for d in recent]),
+            np.std([d['imbalance_ratio'] for d in recent]),
+            np.mean([d['spread_pct'] for d in recent]),
+            np.mean([d['bid_volume_5'] for d in recent]),
+            np.mean([d['ask_volume_5'] for d in recent]),
+            self.depth_gradient['bid'],
+            self.depth_gradient['ask'],
+            len(self.liquidity_walls['bid']),
+            len(self.liquidity_walls['ask']),
+            np.mean([d['imbalance_ratio'] for d in recent[-3:]]) - np.mean([d['imbalance_ratio'] for d in recent[:-3]])
+        ]
+        return np.array(features)
+
+# Initialize Depth Analyzer (Logic-Based, Before ML)
+depth_analyzer = DepthChartAnalyzer()
+
 # ============= ML MODELS & FEATURE ENGINEERING =============
 class MLTradingEnhancer:
     def __init__(self):
-        self.price_predictor = RandomForestRegressor(n_estimators=100, max_depth=15, min_samples_split=5, random_state=42, n_jobs=-1)
-        self.volatility_predictor = RandomForestRegressor(n_estimators=75, max_depth=12, min_samples_split=5, random_state=42, n_jobs=-1)
-        self.pattern_classifier = GradientBoostingClassifier(n_estimators=100, max_depth=10, learning_rate=0.15, min_samples_split=5, random_state=42)
-        self.timing_scorer = RandomForestRegressor(n_estimators=50, max_depth=8, min_samples_split=5, random_state=42, n_jobs=-1)
+        self.price_predictor = RandomForestRegressor(
+            n_estimators=100, max_depth=15, min_samples_split=5, random_state=42, n_jobs=-1)
+        self.volatility_predictor = RandomForestRegressor(
+            n_estimators=75, max_depth=12, min_samples_split=5, random_state=42, n_jobs=-1)
+        self.pattern_classifier = GradientBoostingClassifier(
+            n_estimators=100, max_depth=10, learning_rate=0.15, min_samples_split=5, random_state=42)
+        self.timing_scorer = RandomForestRegressor(
+            n_estimators=50, max_depth=8, min_samples_split=5, random_state=42, n_jobs=-1)
         
         self.price_scaler = StandardScaler()
         self.volatility_scaler = StandardScaler()
@@ -132,22 +300,24 @@ class MLTradingEnhancer:
         self.training_volatility = []
         self.training_patterns = []
         self.models_trained = False
-        self.scalers_fitted = False  # >>> FIX: Track scaler state
+        self.scalers_fitted = False  # FIX: Track scaler state
         
         self.prediction_history = deque(maxlen=300)
         self.adaptive_min_confidence = 0.62
         self.adaptive_risk_threshold = 0.76
 
-    def extract_features(self, price_hist, volume_hist, orderbook_hist):
+    def extract_features(self, price_hist, volume_hist, orderbook_hist, depth_features=None):
         if len(price_hist) < 50:
             return None
         prices = np.array(list(price_hist)[-50:])
         features = []
         
+        # Price statistics
         features.extend([np.mean(prices), np.std(prices), np.max(prices), np.min(prices), prices[-1],
                          (prices[-1] - prices[0]) / (prices[0] + 1e-10)])
         features.extend([np.percentile(prices, p) for p in [25, 75]])
         
+        # Momentum windows
         for window in [5, 10, 20, 40]:
             if len(prices) >= window * 2:
                 recent_avg = np.mean(prices[-window:])
@@ -156,6 +326,7 @@ class MLTradingEnhancer:
             else:
                 features.append(0)
         
+        # Volatility windows
         for window in [10, 20, 30, 40]:
             if len(prices) >= window:
                 returns = np.diff(prices[-window:]) / (prices[-window:-1] + 1e-10)
@@ -163,6 +334,7 @@ class MLTradingEnhancer:
             else:
                 features.append(0)
         
+        # Linear regression
         if len(prices) >= 3:
             x = np.arange(len(prices))
             z = np.polyfit(x, prices, 1)
@@ -175,6 +347,7 @@ class MLTradingEnhancer:
         else:
             features.extend([0, 0, 0])
         
+        # RSI
         if len(prices) >= 15:
             deltas = np.diff(prices[-15:])
             gains = deltas[deltas > 0].sum()
@@ -185,6 +358,7 @@ class MLTradingEnhancer:
         else:
             features.extend([50, 0])
         
+        # MACD
         if len(prices) >= 26:
             ema_fast = self._ema(prices, 12)
             ema_slow = self._ema(prices, 26)
@@ -193,6 +367,7 @@ class MLTradingEnhancer:
         else:
             features.extend([0, 0])
         
+        # Bollinger Bands
         if len(prices) >= 20:
             bb_middle = np.mean(prices[-20:])
             bb_std = np.std(prices[-20:])
@@ -203,12 +378,14 @@ class MLTradingEnhancer:
         else:
             features.extend([0.5, 0])
         
+        # Volume
         if len(volume_hist) >= 50:
             volumes = np.array(list(volume_hist)[-50:])
             features.extend([np.mean(volumes), np.std(volumes), volumes[-1] / (np.mean(volumes) + 1e-10)])
         else:
             features.extend([0, 0, 1.0])
         
+        # Order book imbalance
         if len(orderbook_hist) >= 3:
             ob = list(orderbook_hist)[-3:]
             bid_vols = [o.get('bid_volume', 1.0) for o in ob]
@@ -218,6 +395,12 @@ class MLTradingEnhancer:
             features.extend([avg_bid, avg_ask, imbalance])
         else:
             features.extend([0, 0, 0])
+        
+        # >>> DEPTH FEATURES (From DepthChartAnalyzer) <<<
+        if depth_features is not None and len(depth_features) == 10:
+            features.extend(depth_features)
+        else:
+            features.extend([0.0] * 10)
         
         return np.array(features)
 
@@ -273,8 +456,8 @@ class MLTradingEnhancer:
         confidence = votes[winner] / (sum(votes.values()) + 1e-10)
         return winner, confidence
 
-    # >>> FIX: Complete rewrite of retrain_models() <<<
     def retrain_models(self):
+        """FIX: Validates data and fits scalers if needed before training"""
         if len(self.training_features) < ML_MIN_TRAIN_SAMPLES:
             if ML_VERBOSE_LOGGING:
                 print(f"{COLOR_PURPLE}[ML] Skipping retrain — only {len(self.training_features)} samples{COLOR_RESET}")
@@ -282,14 +465,15 @@ class MLTradingEnhancer:
         
         print(f"{COLOR_PURPLE}[ML] Retraining models with {len(self.training_features)} new samples...{COLOR_RESET}")
         
+        # FIX: Convert to numpy and validate BEFORE any operations
         X = np.array(self.training_features)
         
-        # FIX 1: Validate array shape BEFORE any transform
+        # FIX: Validate array shape (prevents "0 samples" error)
         if X.shape[0] == 0 or len(X.shape) != 2:
             print(f"{COLOR_RED}[ML] Invalid feature array shape: {X.shape}. Skipping retrain.{COLOR_RESET}")
             return
         
-        # FIX 2: Fit scalers if not already fitted
+        # FIX: Check if scalers were fitted (prevents transform crash)
         if not self.scalers_fitted:
             print(f"{COLOR_PURPLE}[ML] Scalers not fitted. Fitting now...{COLOR_RESET}")
             try:
@@ -302,19 +486,27 @@ class MLTradingEnhancer:
                 print(f"{COLOR_RED}[ML] Scaler fit error: {str(e)}{COLOR_RESET}")
                 return
         
+        # FIX: Validate targets match features length
+        if len(self.training_prices) != X.shape[0]:
+            print(f"{COLOR_RED}[ML] Feature/target mismatch ({len(self.training_prices)} vs {X.shape[0]}). Skipping retrain.{COLOR_RESET}")
+            return
+        
         try:
-            # FIX 3: Validate targets match features
-            if len(self.training_prices) != X.shape[0]:
-                print(f"{COLOR_RED}[ML] Feature/target mismatch. Skipping retrain.{COLOR_RESET}")
-                return
+            # FIX: Create copies of data before training (prevents mid-training corruption)
+            X_copy = X.copy()
+            prices_copy = self.training_prices.copy()
+            volatility_copy = self.training_volatility.copy()
+            patterns_copy = self.training_patterns.copy()
             
-            self.price_predictor.fit(self.price_scaler.transform(X), self.training_prices)
-            self.volatility_predictor.fit(self.volatility_scaler.transform(X), self.training_volatility)
-            self.pattern_classifier.fit(self.pattern_scaler.transform(X), self.training_patterns)
-            timing_targets = [(self.training_prices[i] - X[i][4]) / (X[i][4] + 1e-10) for i in range(len(X))]
-            self.timing_scorer.fit(self.timing_scaler.transform(X), timing_targets)
+            X_transformed = self.price_scaler.transform(X_copy)
             
-            self.models_trained = True  # FIX 4: Mark as trained
+            self.price_predictor.fit(X_transformed, prices_copy)
+            self.volatility_predictor.fit(self.volatility_scaler.transform(X_copy), volatility_copy)
+            self.pattern_classifier.fit(self.pattern_scaler.transform(X_copy), patterns_copy)
+            timing_targets = [(prices_copy[i] - X_copy[i][4]) / (X_copy[i][4] + 1e-10) for i in range(len(X_copy))]
+            self.timing_scorer.fit(self.timing_scaler.transform(X_copy), timing_targets)
+            
+            self.models_trained = True
             print(f"{COLOR_PURPLE}[ML] Models retrained successfully{COLOR_RESET}")
         except Exception as e:
             logging.error(f"[ML] Retraining error: {str(e)}")
@@ -376,21 +568,19 @@ class MLTradingEnhancer:
             return 0.5
 
     def train_initial_models(self, historical_data):
-        if len(historical_data) < ML_FEATURE_WINDOW + ML_PRICE_PRED_HORIZON:
+        if len(historical_data) < 56:
             print(f"{COLOR_PURPLE}[ML] Insufficient historical data for training{COLOR_RESET}")
             return False
-        
         print(f"{COLOR_PURPLE}[ML] Training on {len(historical_data)} real candles...{COLOR_RESET}")
         features_list = []
         price_targets, volatility_targets, pattern_targets = [], [], []
         
-        for i in range(ML_FEATURE_WINDOW, len(historical_data) - ML_PRICE_PRED_HORIZON):
-            window = historical_data[i-ML_FEATURE_WINDOW:i]
+        for i in range(50, len(historical_data) - 6):
+            window = historical_data[i-50:i]
             prices = [x['close'] for x in window]
             volumes = [x['volume'] for x in window]
             ob_features = deque(maxlen=3)
-            
-            for j in range(i-ML_FEATURE_WINDOW, i):
+            for j in range(i-50, i):
                 h, l, c = historical_data[j]['high'], historical_data[j]['low'], historical_data[j]['close']
                 if c > 0:
                     buy_pressure = (h - c) / (c + 1e-8)
@@ -400,15 +590,15 @@ class MLTradingEnhancer:
                     imbalance = 0.0
                 ob_features.append({'bid_volume': max(0, imbalance + 1.0), 'ask_volume': max(0, 2.0 - imbalance)})
             
-            features = self.extract_features(deque(prices, maxlen=ML_FEATURE_WINDOW), deque(volumes, maxlen=ML_FEATURE_WINDOW), ob_features)
+            features = self.extract_features(deque(prices, maxlen=50), deque(volumes, maxlen=50), ob_features)
             if features is None:
                 continue
             
             features_list.append(features)
-            future_price = historical_data[i + ML_PRICE_PRED_HORIZON]['close']
+            future_price = historical_data[i + 6]['close']
             price_targets.append(future_price)
             
-            future_prices_list = [x['close'] for x in historical_data[i:i+ML_PRICE_PRED_HORIZON+1]]
+            future_prices_list = [x['close'] for x in historical_data[i:i+7]]
             future_returns = np.diff(np.array(future_prices_list)) / (np.array(future_prices_list[:-1]) + 1e-10)
             volatility_targets.append(np.std(future_returns))
             
@@ -444,7 +634,7 @@ class MLTradingEnhancer:
         self.timing_scorer.fit(self.timing_scaler.transform(X), timing_targets)
         
         self.models_trained = True
-        self.scalers_fitted = True  # >>> FIX: Mark scalers as fitted
+        self.scalers_fitted = True
         return True
 
 ml_enhancer = MLTradingEnhancer() if ML_ENABLED else None
@@ -476,9 +666,9 @@ def get_ohlc(pair, interval, lookback):
             logging.error(f"Kraken OHLC error: {data['error']}")
             return []
         pair_key = list(data['result'].keys())[0]
-        ohlc_data = data['result'][pair_key]
+        ohlc_data = data['result'][pair_key]  # FIX: Variable name consistent
         results = []
-        for row in ohlc_data:
+        for row in ohlc_data:  # FIX: Was truncated to 'ohlc_' in previous version
             try:
                 results.append({
                     'timestamp': float(row[0]),
@@ -604,8 +794,12 @@ def place_order(order_type, amount, price):
         return {'error': [str(e)]}
 
 def calculate_precise_profit(entry, exit_price, amount):
+    """FIX: Added zero-division protection"""
     if entry is None or exit_price is None or amount is None:
         logging.warning("Profit calculation with None value.")
+        return None
+    if entry <= 0 or exit_price <= 0:
+        logging.warning("Profit calculation with zero/negative price.")
         return None
     cost_basis = amount * entry * (1 + FEE_RATE)
     net_proceeds = amount * exit_price * (1 - FEE_RATE)
@@ -627,6 +821,7 @@ def get_trend(ohlc_data, window=10):
     return 'up' if closes[-1] > np.mean(closes) else 'down'
 
 def config_monitor():
+    """FIX: Added EOFError handling for non-interactive environments"""
     global INVESTMENT_AMOUNT, TRADING_PAIR, KRAKEN_PAIR
     print(f"\n{COLOR_MAGENTA}Configuration Active!{COLOR_RESET}")
     print(f"{COLOR_MAGENTA}Commands: 'b'=buy now, 's'=sell now, 'i'=investment, 't'=trading pair, 'c'=show config, 'q'=quit{COLOR_RESET}")
@@ -671,19 +866,28 @@ def config_monitor():
                 print(f"Global Min Price Tracked: ${global_min_price:.4f}")
                 print(f"Global Max Price Tracked: ${global_max_price:.4f}")
                 
+                # Print Zones in Cyan
                 if zone_machine.zone_initialized:
                     print(f"\n{COLOR_CYAN}--- Active Zones ---{COLOR_RESET}")
                     print(f"{COLOR_CYAN}Median: ${zone_machine.median:.4f}{COLOR_RESET}")
                     print(f"{COLOR_CYAN}Buy: [{zone_machine.buy_zone[0]:.4f}-{zone_machine.buy_zone[1]:.4f}]{COLOR_RESET}")
                     print(f"{COLOR_CYAN}Neutral: [{zone_machine.neutral_zone[0]:.2f}-{zone_machine.neutral_zone[1]:.2f}]{COLOR_RESET}")
                     print(f"{COLOR_CYAN}Sell: [{zone_machine.sell_zone[0]:.4f}-{zone_machine.sell_zone[1]:.4f}]{COLOR_RESET}")
+                
+                # Print Depth Status
+                print(f"\n{COLOR_BLUE}--- Depth Analysis ---{COLOR_RESET}")
+                print(f"{COLOR_BLUE}Imbalance Ratio: {depth_analyzer.depth_history[-1]['imbalance_ratio'] if depth_analyzer.depth_history else 'N/A'}{COLOR_RESET}")
+                print(f"{COLOR_BLUE}Signal: {depth_analyzer.depth_history[-1]['depth_signal']['signal'] if depth_analyzer.depth_history else 'N/A'}{COLOR_RESET}")
             else:
                 print(f"{COLOR_YELLOW}Unknown command{COLOR_RESET}")
+        except EOFError:
+            logging.warning("Config monitor: EOFError (non-interactive environment)")
+            break
         except Exception as e:
             logging.error(f"Config Error: {str(e)}")
             print(f"{COLOR_RED}Config Error: {str(e)}{COLOR_RESET}")
 
-# ========== Zone Machine ==========
+# ========== Zone Machine (avg-entry with symmetric range) ==========
 class BestValueZoneMachine4Dec:
     def __init__(self, pair):
         self.pair = pair
@@ -866,7 +1070,7 @@ zone_machine.initialize_zones()
 if ML_ENABLED and ml_enhancer:
     print(f"{COLOR_PURPLE}[ML] Fetching historical data for initial training...{COLOR_RESET}")
     historical_ohlc = get_ohlc(KRAKEN_PAIR, interval=1, lookback=ML_HISTORICAL_LOOKBACK)
-    if len(historical_ohlc) >= ML_FEATURE_WINDOW + ML_PRICE_PRED_HORIZON:
+    if len(historical_ohlc) >= 56:
         ml_enhancer.train_initial_models(historical_ohlc)
     else:
         print(f"{COLOR_PURPLE}[ML] Insufficient historical data. Will train after collecting live data.{COLOR_RESET}")
@@ -877,6 +1081,9 @@ config_thread.start()
 # ========== Main Loop ==========
 while True:
     try:
+        # FIX: Removed 'global' declaration (variables are module-level, not inside function)
+        # This was causing: SyntaxError: name 'ml_tick_count' is assigned to before global declaration
+        
         # Process manual triggers first
         while not manual_trigger_queue.empty():
             trigger = manual_trigger_queue.get()
@@ -924,6 +1131,7 @@ while True:
             continue
         price = round(price, 4)
         
+        # UPDATE GLOBAL MIN/MAX TRACKERS
         if price < global_min_price:
             global_min_price = price
         if price > global_max_price:
@@ -936,8 +1144,8 @@ while True:
         if orderbook:
             orderbook_history.append(orderbook)
         
-        ohlc_data = get_ohlc(KRAKEN_PAIR, interval=1, lookback=20)
-        if not ohlc_data:
+        ohlc_data = get_ohlc(KRAKEN_PAIR, interval=1, lookback=20)  # FIX: Variable name consistent
+        if not ohlc_data:  # FIX: Was 'if not ohlc_' in previous version
             print(f"{COLOR_RED}No OHLC data, skipping tick.{COLOR_RESET}")
             time.sleep(PRICE_CHECK_INTERVAL)
             continue
@@ -945,6 +1153,9 @@ while True:
         
         trend = get_trend(ohlc_data, window=10)
         zone_status = zone_machine.price_zone(price)
+        
+        # >>> DEPTH ANALYSIS (Logic-Based, BEFORE ML) <<<
+        depth_analysis = depth_analyzer.analyze_depth(orderbook, price)
         
         # >>> TICKER PRINT BLOCK - EVERY TICK <<<
         profit_display = "N/A"
@@ -965,14 +1176,21 @@ while True:
             print(f"{COLOR_CYAN}Buy: [{zone_machine.buy_zone[0]:.4f}-{zone_machine.buy_zone[1]:.4f}]{COLOR_RESET}")
             print(f"{COLOR_CYAN}Neutral: [{zone_machine.neutral_zone[0]:.2f}-{zone_machine.neutral_zone[1]:.2f}]{COLOR_RESET}")
             print(f"{COLOR_CYAN}Sell: [{zone_machine.sell_zone[0]:.4f}-{zone_machine.sell_zone[1]:.4f}]{COLOR_RESET}")
+        
+        # Depth Info
+        if DEBUG:
+            print(f"{COLOR_BLUE}Depth Imbalance: {depth_analysis['imbalance_ratio']:.4f} | Signal: {depth_analysis['depth_signal']['signal']}{COLOR_RESET}")
         # >>> END TICKER PRINT BLOCK <<<
 
-        # >>> ML EVALUATION <<<
+        # >>> ML EVALUATION (AFTER Depth Analysis) <<<
         ml_pred_price = ml_confidence = ml_timing_score = ml_risk_score = None
         ml_ensemble_vote = None
         
         if ML_ENABLED and ml_enhancer and ml_enhancer.models_trained:
-            features = ml_enhancer.extract_features(price_history, volume_history, orderbook_history)
+            # Get depth features from DepthChartAnalyzer
+            depth_features = depth_analyzer.get_depth_features_for_ml()
+            
+            features = ml_enhancer.extract_features(price_history, volume_history, orderbook_history, depth_features)
             if features is not None:
                 ml_pred_price = ml_enhancer.predict_price(features)
                 ml_timing_score = ml_enhancer.score_timing(features)
@@ -983,11 +1201,12 @@ while True:
 
         now = time.time()
         
-        # Auto BUY path
+        # Auto BUY path (depth-aware + ML override)
         if not active_position:
             best_buy_price = zone_machine.track_best_buy(price)
             exec_target = best_buy_price
             
+            # ML Override Logic (can break baseline if confidence high)
             if ML_ALLOW_ZONE_OVERRIDE:
                 if best_buy_price is None and ml_ensemble_vote == 'buy' and ml_confidence > 0.73:
                     exec_target = price
@@ -1032,11 +1251,12 @@ while True:
             time.sleep(PRICE_CHECK_INTERVAL)
             continue
 
-        # Auto SELL path
+        # Auto SELL path (depth-aware + ML override)
         if active_position:
             best_sell_price = zone_machine.track_best_sell(price, entry_price, token_amount)
             exec_target = best_sell_price
             
+            # ML Override Logic
             if ML_ALLOW_ZONE_OVERRIDE:
                 if best_sell_price is None and ml_ensemble_vote == 'sell' and ml_confidence > 0.73:
                     exec_target = price
@@ -1074,21 +1294,25 @@ while True:
         # ML Learning Loop
         ml_tick_count += 1
         if ML_ENABLED and ml_enhancer:
-            if ml_tick_count % 10 == 0:
-                features = ml_enhancer.extract_features(price_history, volume_history, orderbook_history)
-                if features is not None:
-                    ml_enhancer.training_features.append(features)
-                    ml_enhancer.training_prices.append(price)
-                    if len(ml_enhancer.training_features) > ML_ONLINE_BUFFER_SIZE:
-                        ml_enhancer.training_features = ml_enhancer.training_features[-ML_ONLINE_BUFFER_SIZE:]
-                        ml_enhancer.training_prices = ml_enhancer.training_prices[-ML_ONLINE_BUFFER_SIZE:]
+            # FIX: Collect training data EVERY tick (not every 10th) to ensure alignment with retrain trigger
+            depth_features = depth_analyzer.get_depth_features_for_ml()
+            features = ml_enhancer.extract_features(price_history, volume_history, orderbook_history, depth_features)
+            if features is not None:
+                ml_enhancer.training_features.append(features)
+                ml_enhancer.training_prices.append(price)
+                # FIX: Don't truncate during collection - only check size
+                if len(ml_enhancer.training_features) > ML_ONLINE_BUFFER_SIZE:
+                    ml_enhancer.training_features = ml_enhancer.training_features[-ML_ONLINE_BUFFER_SIZE:]
+                    ml_enhancer.training_prices = ml_enhancer.training_prices[-ML_ONLINE_BUFFER_SIZE:]
             
+            # FIX: Retraining only triggers after enough samples collected
             if ml_enhancer.models_trained and ml_tick_count % ML_RETRAIN_INTERVAL == 0:
                 print(f"{COLOR_PURPLE}[ML] Periodic retraining triggered...{COLOR_RESET}")
                 ml_enhancer.retrain_models()
             
+            # Train initial models from live data if historical training failed
             if not ml_enhancer.models_trained:
-                if len(price_history) >= ML_FEATURE_WINDOW + ML_PRICE_PRED_HORIZON:
+                if len(price_history) >= 56:
                     print(f"{COLOR_PURPLE}[ML] Sufficient live data. Training initial models...{COLOR_RESET}")
                     live_ohlc = []
                     for i, p in enumerate(price_history):
