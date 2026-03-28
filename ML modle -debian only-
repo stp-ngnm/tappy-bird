@@ -1,5 +1,4 @@
-# cats.md — ML-Enhanced Depth-Aware Trading Bot (Final v2.0 - All Fixes Applied)
-# Fixes: Syntax errors, ML retraining crash, variable alignment, depth analysis, color output
+# cats.md — ML-Enhanced Depth-Aware Trading Bot (Final Integration)
 import numpy as np
 import requests
 import time
@@ -81,6 +80,7 @@ ML_VOLATILITY_PRED_HORIZON = 4
 ML_MIN_CONFIDENCE = 0.62
 ML_HIGH_CONFIDENCE = 0.73
 ML_MAX_RISK_THRESHOLD = 0.76
+ML_CRITICAL_RISK_THRESHOLD = 0.80
 ML_ALLOW_ZONE_OVERRIDE = True
 ML_REQUIRE_TREND_CONFIRMATION = True
 ML_USE_ENSEMBLE_VOTING = True
@@ -120,7 +120,6 @@ class DepthChartAnalyzer:
     """
     HARDCODED LOGIC: Analyzes order book depth for trading signals.
     Runs BEFORE ML evaluation in the main loop.
-    Replaces detect_market_regime() from original Loser.txt
     """
     def __init__(self):
         self.depth_history = deque(maxlen=50)
@@ -173,6 +172,8 @@ class DepthChartAnalyzer:
             'spread_pct': spread_pct,
             'bid_volume_5': bid_volume_5,
             'ask_volume_5': ask_volume_5,
+            'bid_volume_20': bid_volume_20,
+            'ask_volume_20': ask_volume_20,
             'depth_gradient_bid': self.depth_gradient['bid'],
             'depth_gradient_ask': self.depth_gradient['ask'],
             'liquidity_walls': self.liquidity_walls.copy()
@@ -212,13 +213,15 @@ class DepthChartAnalyzer:
         # Bid walls (support) - orders > 3x average
         self.liquidity_walls['bid'] = [
             {'price': p, 'volume': v, 'strength': v / avg_bid_vol}
-            for p, v in bids[:20] if v > (avg_bid_vol * 3.0)
+            for p, v in bids[:20]
+            if v > (avg_bid_vol * 3.0)
         ][:3]
         
         # Ask walls (resistance)
         self.liquidity_walls['ask'] = [
             {'price': p, 'volume': v, 'strength': v / avg_ask_vol}
-            for p, v in asks[:20] if v > (avg_ask_vol * 3.0)
+            for p, v in asks[:20]
+            if v > (avg_ask_vol * 3.0)
         ][:3]
     
     def _generate_depth_signal(self, imbalance_ratio, spread_pct, avg_spread):
@@ -248,15 +251,19 @@ class DepthChartAnalyzer:
     
     def _empty_depth_signal(self):
         return {
-            'imbalance_ratio': 0.0, 'spread_pct': 0.0, 'avg_spread': 0.0,
-            'bid_volume_5': 0.0, 'ask_volume_5': 0.0,
+            'imbalance_ratio': 0.0,
+            'spread_pct': 0.0,
+            'avg_spread': 0.0,
+            'bid_volume_5': 0.0,
+            'ask_volume_5': 0.0,
             'depth_signal': {'signal': 'NEUTRAL', 'confidence': 0.0, 'imbalance': 0.0},
-            'gradient_bid': 0.0, 'gradient_ask': 0.0,
+            'gradient_bid': 0.0,
+            'gradient_ask': 0.0,
             'liquidity_walls': {'bid': [], 'ask': []}
         }
     
     def get_depth_features_for_ml(self):
-        """Extract depth features for ML model input (10 dimensions)"""
+        """Extract depth features for ML model input"""
         if len(self.depth_history) < 5:
             return np.zeros(10)
         
@@ -300,7 +307,7 @@ class MLTradingEnhancer:
         self.training_volatility = []
         self.training_patterns = []
         self.models_trained = False
-        self.scalers_fitted = False  # FIX: Track scaler state
+        self.scalers_fitted = False
         
         self.prediction_history = deque(maxlen=300)
         self.adaptive_min_confidence = 0.62
@@ -457,23 +464,15 @@ class MLTradingEnhancer:
         return winner, confidence
 
     def retrain_models(self):
-        """FIX: Validates data and fits scalers if needed before training"""
-        if len(self.training_features) < ML_MIN_TRAIN_SAMPLES:
-            if ML_VERBOSE_LOGGING:
-                print(f"{COLOR_PURPLE}[ML] Skipping retrain — only {len(self.training_features)} samples{COLOR_RESET}")
+        if len(self.training_features) < 75:
             return
-        
         print(f"{COLOR_PURPLE}[ML] Retraining models with {len(self.training_features)} new samples...{COLOR_RESET}")
-        
-        # FIX: Convert to numpy and validate BEFORE any operations
         X = np.array(self.training_features)
         
-        # FIX: Validate array shape (prevents "0 samples" error)
         if X.shape[0] == 0 or len(X.shape) != 2:
             print(f"{COLOR_RED}[ML] Invalid feature array shape: {X.shape}. Skipping retrain.{COLOR_RESET}")
             return
         
-        # FIX: Check if scalers were fitted (prevents transform crash)
         if not self.scalers_fitted:
             print(f"{COLOR_PURPLE}[ML] Scalers not fitted. Fitting now...{COLOR_RESET}")
             try:
@@ -486,31 +485,16 @@ class MLTradingEnhancer:
                 print(f"{COLOR_RED}[ML] Scaler fit error: {str(e)}{COLOR_RESET}")
                 return
         
-        # FIX: Validate targets match features length
-        if len(self.training_prices) != X.shape[0]:
-            print(f"{COLOR_RED}[ML] Feature/target mismatch ({len(self.training_prices)} vs {X.shape[0]}). Skipping retrain.{COLOR_RESET}")
-            return
-        
         try:
-            # FIX: Create copies of data before training (prevents mid-training corruption)
-            X_copy = X.copy()
-            prices_copy = self.training_prices.copy()
-            volatility_copy = self.training_volatility.copy()
-            patterns_copy = self.training_patterns.copy()
-            
-            X_transformed = self.price_scaler.transform(X_copy)
-            
-            self.price_predictor.fit(X_transformed, prices_copy)
-            self.volatility_predictor.fit(self.volatility_scaler.transform(X_copy), volatility_copy)
-            self.pattern_classifier.fit(self.pattern_scaler.transform(X_copy), patterns_copy)
-            timing_targets = [(prices_copy[i] - X_copy[i][4]) / (X_copy[i][4] + 1e-10) for i in range(len(X_copy))]
-            self.timing_scorer.fit(self.timing_scaler.transform(X_copy), timing_targets)
-            
+            self.price_predictor.fit(self.price_scaler.transform(X), self.training_prices)
+            self.volatility_predictor.fit(self.volatility_scaler.transform(X), self.training_volatility)
+            self.pattern_classifier.fit(self.pattern_scaler.transform(X), self.training_patterns)
+            timing_targets = [(self.training_prices[i] - X[i][4]) / (X[i][4] + 1e-10) for i in range(len(X))]
+            self.timing_scorer.fit(self.timing_scaler.transform(X), timing_targets)
             self.models_trained = True
             print(f"{COLOR_PURPLE}[ML] Models retrained successfully{COLOR_RESET}")
         except Exception as e:
             logging.error(f"[ML] Retraining error: {str(e)}")
-            print(f"{COLOR_RED}[ML] Retraining failed: {str(e)}{COLOR_RESET}")
 
     def predict_price(self, features):
         if not self.models_trained or features is None:
@@ -666,9 +650,9 @@ def get_ohlc(pair, interval, lookback):
             logging.error(f"Kraken OHLC error: {data['error']}")
             return []
         pair_key = list(data['result'].keys())[0]
-        ohlc_data = data['result'][pair_key]  # FIX: Variable name consistent
+        ohlc_data = data['result'][pair_key]
         results = []
-        for row in ohlc_data:  # FIX: Was truncated to 'ohlc_' in previous version
+        for row in ohlc_data:
             try:
                 results.append({
                     'timestamp': float(row[0]),
@@ -794,12 +778,8 @@ def place_order(order_type, amount, price):
         return {'error': [str(e)]}
 
 def calculate_precise_profit(entry, exit_price, amount):
-    """FIX: Added zero-division protection"""
     if entry is None or exit_price is None or amount is None:
         logging.warning("Profit calculation with None value.")
-        return None
-    if entry <= 0 or exit_price <= 0:
-        logging.warning("Profit calculation with zero/negative price.")
         return None
     cost_basis = amount * entry * (1 + FEE_RATE)
     net_proceeds = amount * exit_price * (1 - FEE_RATE)
@@ -821,7 +801,6 @@ def get_trend(ohlc_data, window=10):
     return 'up' if closes[-1] > np.mean(closes) else 'down'
 
 def config_monitor():
-    """FIX: Added EOFError handling for non-interactive environments"""
     global INVESTMENT_AMOUNT, TRADING_PAIR, KRAKEN_PAIR
     print(f"\n{COLOR_MAGENTA}Configuration Active!{COLOR_RESET}")
     print(f"{COLOR_MAGENTA}Commands: 'b'=buy now, 's'=sell now, 'i'=investment, 't'=trading pair, 'c'=show config, 'q'=quit{COLOR_RESET}")
@@ -873,16 +852,8 @@ def config_monitor():
                     print(f"{COLOR_CYAN}Buy: [{zone_machine.buy_zone[0]:.4f}-{zone_machine.buy_zone[1]:.4f}]{COLOR_RESET}")
                     print(f"{COLOR_CYAN}Neutral: [{zone_machine.neutral_zone[0]:.2f}-{zone_machine.neutral_zone[1]:.2f}]{COLOR_RESET}")
                     print(f"{COLOR_CYAN}Sell: [{zone_machine.sell_zone[0]:.4f}-{zone_machine.sell_zone[1]:.4f}]{COLOR_RESET}")
-                
-                # Print Depth Status
-                print(f"\n{COLOR_BLUE}--- Depth Analysis ---{COLOR_RESET}")
-                print(f"{COLOR_BLUE}Imbalance Ratio: {depth_analyzer.depth_history[-1]['imbalance_ratio'] if depth_analyzer.depth_history else 'N/A'}{COLOR_RESET}")
-                print(f"{COLOR_BLUE}Signal: {depth_analyzer.depth_history[-1]['depth_signal']['signal'] if depth_analyzer.depth_history else 'N/A'}{COLOR_RESET}")
             else:
                 print(f"{COLOR_YELLOW}Unknown command{COLOR_RESET}")
-        except EOFError:
-            logging.warning("Config monitor: EOFError (non-interactive environment)")
-            break
         except Exception as e:
             logging.error(f"Config Error: {str(e)}")
             print(f"{COLOR_RED}Config Error: {str(e)}{COLOR_RESET}")
@@ -1081,9 +1052,6 @@ config_thread.start()
 # ========== Main Loop ==========
 while True:
     try:
-        # FIX: Removed 'global' declaration (variables are module-level, not inside function)
-        # This was causing: SyntaxError: name 'ml_tick_count' is assigned to before global declaration
-        
         # Process manual triggers first
         while not manual_trigger_queue.empty():
             trigger = manual_trigger_queue.get()
@@ -1144,8 +1112,8 @@ while True:
         if orderbook:
             orderbook_history.append(orderbook)
         
-        ohlc_data = get_ohlc(KRAKEN_PAIR, interval=1, lookback=20)  # FIX: Variable name consistent
-        if not ohlc_data:  # FIX: Was 'if not ohlc_' in previous version
+        ohlc_data = get_ohlc(KRAKEN_PAIR, interval=1, lookback=20)
+        if not ohlc_data:
             print(f"{COLOR_RED}No OHLC data, skipping tick.{COLOR_RESET}")
             time.sleep(PRICE_CHECK_INTERVAL)
             continue
@@ -1177,7 +1145,7 @@ while True:
             print(f"{COLOR_CYAN}Neutral: [{zone_machine.neutral_zone[0]:.2f}-{zone_machine.neutral_zone[1]:.2f}]{COLOR_RESET}")
             print(f"{COLOR_CYAN}Sell: [{zone_machine.sell_zone[0]:.4f}-{zone_machine.sell_zone[1]:.4f}]{COLOR_RESET}")
         
-        # Depth Info
+        # Depth Info (Optional Debug)
         if DEBUG:
             print(f"{COLOR_BLUE}Depth Imbalance: {depth_analysis['imbalance_ratio']:.4f} | Signal: {depth_analysis['depth_signal']['signal']}{COLOR_RESET}")
         # >>> END TICKER PRINT BLOCK <<<
@@ -1294,23 +1262,20 @@ while True:
         # ML Learning Loop
         ml_tick_count += 1
         if ML_ENABLED and ml_enhancer:
-            # FIX: Collect training data EVERY tick (not every 10th) to ensure alignment with retrain trigger
-            depth_features = depth_analyzer.get_depth_features_for_ml()
-            features = ml_enhancer.extract_features(price_history, volume_history, orderbook_history, depth_features)
-            if features is not None:
-                ml_enhancer.training_features.append(features)
-                ml_enhancer.training_prices.append(price)
-                # FIX: Don't truncate during collection - only check size
-                if len(ml_enhancer.training_features) > ML_ONLINE_BUFFER_SIZE:
-                    ml_enhancer.training_features = ml_enhancer.training_features[-ML_ONLINE_BUFFER_SIZE:]
-                    ml_enhancer.training_prices = ml_enhancer.training_prices[-ML_ONLINE_BUFFER_SIZE:]
+            if ml_tick_count % 10 == 0:
+                depth_features = depth_analyzer.get_depth_features_for_ml()
+                features = ml_enhancer.extract_features(price_history, volume_history, orderbook_history, depth_features)
+                if features is not None:
+                    ml_enhancer.training_features.append(features)
+                    ml_enhancer.training_prices.append(price)
+                    if len(ml_enhancer.training_features) > ML_ONLINE_BUFFER_SIZE:
+                        ml_enhancer.training_features = ml_enhancer.training_features[-ML_ONLINE_BUFFER_SIZE:]
+                        ml_enhancer.training_prices = ml_enhancer.training_prices[-ML_ONLINE_BUFFER_SIZE:]
             
-            # FIX: Retraining only triggers after enough samples collected
             if ml_enhancer.models_trained and ml_tick_count % ML_RETRAIN_INTERVAL == 0:
                 print(f"{COLOR_PURPLE}[ML] Periodic retraining triggered...{COLOR_RESET}")
                 ml_enhancer.retrain_models()
             
-            # Train initial models from live data if historical training failed
             if not ml_enhancer.models_trained:
                 if len(price_history) >= 56:
                     print(f"{COLOR_PURPLE}[ML] Sufficient live data. Training initial models...{COLOR_RESET}")
