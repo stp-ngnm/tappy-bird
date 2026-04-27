@@ -84,20 +84,15 @@ KRAKEN_PAIR = TRADING_PAIR
 INVESTMENT_AMOUNT = 20.00       # enter any amount limmited by kraken
 FEE_RATE = 0.00365               # 0.0036% dont change this its a dummy switch
 BOND_DECIMALS = 8               # the number of decimals below 0 its capable of detecting
-MIN_PROFIT = 0.25               # configure to compare with the allocated investment amount
+MIN_PROFIT = 0.18               # configure to compare with the allocated investment amount
 STOP_LOSS_PCT = 0.100           # 1.00% stop-loss 
 # =================================
-
-to better understand what percentials are used 
-subrtact 0.7% from your allocated ammount in a calculator
-($10-0.7% = $9.93) 7 cents less
-this math is the same in other parts of the gonfigurations
 
 
 # ======= AVG-ENTRY TUNING =======
 BUY_AT_LOWEST_AVERAGE = True
 SELL_AT_HIGHEST_AVERAGE = True
-ENTRY_RANGE_PCT = 0.007          # ±0.7% acceptance around averages
+ENTRY_RANGE_PCT = 0.0018          # ±0.7% acceptance around averages
 # =================================
 
 keep in mind that lowest average does not mean lowest price
@@ -109,9 +104,9 @@ in that case hang on because it causes it to hold untill the next best sale poin
 -ObVIouSslly
 
 # ======= DEPTH / SLIPPAGE CONFIG =======
-MAX_SLIPPAGE_PCT = 0.01        # maximum acceptable slippage (1% default)
+MAX_SLIPPAGE_PCT = 0.018        # maximum acceptable slippage (1.8% default)
 MIN_LIQUIDITY_RATIO = 0.6      # minimum fraction 0.6 >not sure what this one is<
-ORDERBOOK_DEPTH_LEVELS = 50    # number of price levels to fetch from Kraken depth
+ORDERBOOK_DEPTH_LEVELS = 500    # number of price levels to fetch from Kraken depth
 # =================================
 
 API_URL = "https://api.kraken.com"
@@ -196,13 +191,14 @@ and that ulltimatly by putting money into the app youve made them into 'play buc
 
 --------------------------------------------------------------------------------------------
 
-KRAKEN_PAIR = "ZEC|XMR|LTC|USD" you cant trade multiple at a time sadly
+KRAKEN_PAIR = "ZEC|XMR|LTC|ATOM|USDC" you cant trade multiple at a time sadly
 
+XMR
 INVESTMENT_AMOUNT = 23.23       # enter any amount limmited by kraken
 FEE_RATE = 0.00365               # 0.0036% dont change this its a dummy switch
 BOND_DECIMALS = 8               # the number of decimals below 0 its capable of detecting
-MIN_PROFIT = 0.20               # configure to compare with the allocated investment amount
-ZONE_BUFFER = 8.88            # $8.88 no act zone
-SELL_ZONE_EXTRA = 28.28      # $28.28 detect/sell zone above buffer
-BUY_ZONE_EXTRA = 28.28       # $28.28 detect/buy zone below buffer
+MIN_PROFIT = 0.18               # configure to compare with the allocated investment amount
+ZONE_BUFFER = 4.22            # $8.88 no act zone
+SELL_ZONE_EXTRA = 12.34      # $28.28 detect/sell zone above buffer
+BUY_ZONE_EXTRA = 8.88       # $28.28 detect/buy zone below buffer
 MEDIAN_LOOKBACK = 1740        # 300 is equivilant to 5 hours of every 1 min tick
