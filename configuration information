@@ -190,15 +190,34 @@ remember these things can take days to play correctly and can be both exiting an
 and that ulltimatly by putting money into the app youve made them into 'play bucks' untill withdrawn
 
 --------------------------------------------------------------------------------------------
+# ======== TRADING CONFIG ========
+TRADING_PAIR = "XMRUSDC"
+KRAKEN_PAIR = TRADING_PAIR
+INVESTMENT_AMOUNT = 11.11 # ten cent fee rate
+FEE_RATE = 0.0036   # real fee calculations
+BOND_DECIMALS = 8    #idgaf what this one does
+MIN_PROFIT = 0.11   # keep over 10 or be upset about pull pennies
+STOP_LOSS_PCT = 0.1000 # thats 100% dingus
+STOP_LOSS_LIMIT_BUFFER = 0.500 # but this is 50% somehow
+MIN_ORDER_USD = 10.0
 
-KRAKEN_PAIR = "ZEC|XMR|LTC|ATOM|USDC" you cant trade multiple at a time sadly
+# ======= AVG-ENTRY TUNING =======
+BUY_AT_LOWEST_AVERAGE = True
+SELL_AT_HIGHEST_AVERAGE = True
+ENTRY_RANGE_PCT = 0.0018 #i have another slippage gaurd it looks sort of like this... make it into a different number like 0.032
 
-XMR
-INVESTMENT_AMOUNT = 23.23       # enter any amount limmited by kraken
-FEE_RATE = 0.00365               # 0.0036% dont change this its a dummy switch
-BOND_DECIMALS = 8               # the number of decimals below 0 its capable of detecting
-MIN_PROFIT = 0.18               # configure to compare with the allocated investment amount
-ZONE_BUFFER = 4.22            # $8.88 no act zone
-SELL_ZONE_EXTRA = 12.34      # $28.28 detect/sell zone above buffer
-BUY_ZONE_EXTRA = 8.88       # $28.28 detect/buy zone below buffer
-MEDIAN_LOOKBACK = 1740        # 300 is equivilant to 5 hours of every 1 min tick
+# ======= DEPTH / SLIPPAGE CONFIG =======
+MAX_SLIPPAGE_PCT = 0.032 # heres that 0.032 you should use it it lets go at 3.20% slip profit loss
+MIN_LIQUIDITY_RATIO = 0.6
+ORDERBOOK_DEPTH_LEVELS = 500
+
+API_URL = "https://api.kraken.com"
+API_VERSION = "0"
+
+# ======== ZONE CONFIGURATION ========
+ZONE_BUFFER = 4.04
+SELL_ZONE_EXTRA = 12.34
+BUY_ZONE_EXTRA = 8.88
+PRICE_CHECK_INTERVAL = 15
+ZONE_RESET_HOLD_TIME = 15
+MEDIAN_LOOKBACK = 524160
