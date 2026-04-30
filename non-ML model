@@ -28,23 +28,23 @@ if API_KEY == "your_api_key_here" or API_SECRET == "your_api_secret_here":
     raise ValueError("Please replace the placeholder API keys with your actual Kraken keys.")
 
 # ======== TRADING CONFIG ========
-TRADING_PAIR = "LTCUSDC"
+TRADING_PAIR = "XXXXUSDC"
 KRAKEN_PAIR = TRADING_PAIR
 INVESTMENT_AMOUNT = 11.11
 FEE_RATE = 0.0036
 BOND_DECIMALS = 8
-MIN_PROFIT = 0.20
-STOP_LOSS_PCT = 0.0100
-STOP_LOSS_LIMIT_BUFFER = 0.005
+MIN_PROFIT = 0.11
+STOP_LOSS_PCT = 0.1000
+STOP_LOSS_LIMIT_BUFFER = 0.500
 MIN_ORDER_USD = 10.0
 
 # ======= AVG-ENTRY TUNING =======
 BUY_AT_LOWEST_AVERAGE = True
 SELL_AT_HIGHEST_AVERAGE = True
-ENTRY_RANGE_PCT = 0.018
+ENTRY_RANGE_PCT = 0.0018
 
 # ======= DEPTH / SLIPPAGE CONFIG =======
-MAX_SLIPPAGE_PCT = 0.0018
+MAX_SLIPPAGE_PCT = 0.0048
 MIN_LIQUIDITY_RATIO = 0.6
 ORDERBOOK_DEPTH_LEVELS = 500
 
@@ -52,11 +52,11 @@ API_URL = "https://api.kraken.com"
 API_VERSION = "0"
 
 # ======== ZONE CONFIGURATION ========
-ZONE_BUFFER = 2.66
+ZONE_BUFFER = 4.22
 SELL_ZONE_EXTRA = 23.33
 BUY_ZONE_EXTRA = 23.33
 PRICE_CHECK_INTERVAL = 15
-ZONE_RESET_HOLD_TIME = 300
+ZONE_RESET_HOLD_TIME = 15
 MEDIAN_LOOKBACK = 524160
 
 # ======== MACD PARAMETERS ========
@@ -276,7 +276,7 @@ def print_dashboard(price, zone_machine, trend, active, amt, profit_usd, last_ty
     # 🎨 COLOR SCHEME
     B = "\033[95m"  # Light Purple (Borders)
     T = "\033[31m"  # Dark Red (Titles)
-    S = "\033[93m"  # Yellow (Subtitles)
+    S = "\033[33m"  # Yellow (Subtitles)
     N = "\033[32m"  # Darkened Green (Numbers)
     G = "\033[92m"  # Bright Green (Profit +)
     R = "\033[91m"  # Bright Red (Profit -)
