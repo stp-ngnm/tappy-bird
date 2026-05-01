@@ -65,9 +65,15 @@ sudo apt upgrade
 in termux this is mostly the same 
 but unless your terminal is rooted 
 you can only use the non ml version
-and termux's terminal 
-uses pkg instead of apt 
+and termux's terminal uses pkg instead of apt... 
 sudo is for root privlage
+
+you wont be installing ufw or any of those others though
+instead install f-droid and from it aurrora store 
+look into personal security items firewalls, dns, proxies... 
+orbot is 'popular' darkweb proxy framework for your phone
+intra is a secure dns exchange for you web calling apps
+                         or dont you care
 
 pkg update 
 pkg upgrade 
