@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-# Depth‑aware trading bot with dynamic position sizing, MACD trend filter,
-# multi‑page order book depth, support/resistance levels, and fee‑aware tracking.
-# EXACT DASHBOARD COLORS & LAYOUT AS REQUESTED.
+"""
+Depth-Aware Trading Bot (Logic Only)
+✅ MEDIAN_LOOKBACK = 300 (5 hours of 1-min candles)
+✅ EMA MACD, trend-independent profit exits, robust Base64 signing
+✅ No pause logic, thread-safe config, explicit error reporting
+"""
 
 import numpy as np
 import requests
@@ -16,6 +19,15 @@ import base64
 import urllib.parse
 from typing import Optional, Tuple, List, Dict, Any
 
+# ======== ANSI COLOR CODES (EXACT AS REQUESTED) ========
+BORDER = "\033[95m"   # Light Purple
+TITLE  = "\033[31m"   # Dark Red
+SUB    = "\033[33m"   # Yellow
+NUM    = "\033[32m"   # Darkened Green (shaded but vibrant)
+PROF_P = "\033[92m"   # Bright Green (Profit +)
+PROF_N = "\033[91m"   # Bright Red   (Profit -)
+RESET  = "\033[0m"
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 DEBUG = False
 
@@ -28,20 +40,21 @@ if API_KEY == "your_api_key_here" or API_SECRET == "your_api_secret_here":
     raise ValueError("Please replace the placeholder API keys with your actual Kraken keys.")
 
 # ======== TRADING CONFIG ========
-TRADING_PAIR = "XXXXUSDC"
+TRADING_PAIR = "XMRUSD"      # this is how youll pick your markets change either one saddly they have to syat linked 
 KRAKEN_PAIR = TRADING_PAIR
-INVESTMENT_AMOUNT = 11.11
-FEE_RATE = 0.0036
-BOND_DECIMALS = 8
+INVESTMENT_AMOUNT = 11.11    # this his how youll decide how much you want to spend
+FEE_RATE = 0.0036            # this is the standard fee rate on kraken
+BOND_DECIMALS = 8            # im not going to care what this is
 MIN_PROFIT = 0.11
-STOP_LOSS_PCT = 0.1000
+STOP_LOSS_PCT = 0.1000       # to find these out ask an ai about an uploaded txt file containg the script... make edits idgaf
 STOP_LOSS_LIMIT_BUFFER = 0.500
 MIN_ORDER_USD = 10.0
 
 # ======= AVG-ENTRY TUNING =======
 BUY_AT_LOWEST_AVERAGE = True
 SELL_AT_HIGHEST_AVERAGE = True
-ENTRY_RANGE_PCT = 0.0018
+ENTRY_RANGE_PCT = 0.0018    # this math should apply accors the board 0.0018 makes a 0.18 range
+                            # why its that removed of a decipl im not sure
 
 # ======= DEPTH / SLIPPAGE CONFIG =======
 MAX_SLIPPAGE_PCT = 0.0048
@@ -51,13 +64,13 @@ ORDERBOOK_DEPTH_LEVELS = 500
 API_URL = "https://api.kraken.com"
 API_VERSION = "0"
 
-# ======== ZONE CONFIGURATION ========
+# ======== ZONE & OHLC CONFIGURATION ========
 ZONE_BUFFER = 4.22
 SELL_ZONE_EXTRA = 23.33
 BUY_ZONE_EXTRA = 23.33
-PRICE_CHECK_INTERVAL = 15
+PRICE_CHECK_INTERVAL = 35
 ZONE_RESET_HOLD_TIME = 15
-MEDIAN_LOOKBACK = 524160
+MEDIAN_LOOKBACK = 524160        # 300 is = to 5 HOURS OF 1-MIN CANDLES
 
 # ======== MACD PARAMETERS ========
 MACD_FAST = 12
@@ -65,7 +78,7 @@ MACD_SLOW = 26
 MACD_SIGNAL = 9
 
 # =====================================
-# GLOBAL STATE & TRACKING
+# GLOBAL STATE & THREAD LOCKS
 # =====================================
 active_position = False
 entry_price = 0.0
@@ -76,6 +89,7 @@ last_trade_time = 0
 TRADE_MIN_INTERVAL = 60
 last_trend = "UNKNOWN"
 last_trade_type = "NONE"
+config_lock = threading.Lock()
 
 # ========================== API / UTILITIES ==========================
 def get_valid_kraken_pair(pair):
@@ -84,8 +98,7 @@ def get_valid_kraken_pair(pair):
         try:
             response = requests.get(f'{API_URL}/{API_VERSION}/public/Ticker?pair={variation}', timeout=5)
             data = response.json()
-            if 'error' not in data or not data['error']:
-                return variation
+            if 'error' not in data or not data['error']: return variation
         except: continue
     return pair
 
@@ -169,8 +182,7 @@ def kraken_request(uri_path, data):
         for attempt in range(3):
             try:
                 response = requests.post(API_URL + uri_path, data=data, headers=headers, timeout=10)
-                if response.status_code == 429:
-                    time.sleep(min(60, 2**attempt + 1)); continue
+                if response.status_code == 429: time.sleep(min(60, 2**attempt + 1)); continue
                 response.raise_for_status()
                 return response.json()
             except: time.sleep(2**attempt)
@@ -185,15 +197,20 @@ def place_order(order_type, amount, price, ordertype='market', price2=None):
     elif ordertype == 'stop-loss-limit': data['price'], data['price2'] = str(round(price, 8)), str(round(price2, 8))
     try:
         result = kraken_request(f'/{API_VERSION}/private/AddOrder', data)
-        if 'error' in result and result['error']: print(f"❌ {result['error'][0]}"); return result
-        print(f"✅ Order Placed Successfully."); return result
+        if 'error' in result and result['error']:
+            err = result['error'][0] if isinstance(result['error'], list) else str(result['error'])
+            if "Insufficient funds" in err: print(f"{BORDER}❌ INSUFFICIENT FUNDS: Check quote balance.{RESET}")
+            elif "Order too small" in err: print(f"{BORDER}❌ ORDER TOO SMALL: Below Kraken min.{RESET}")
+            else: print(f"{BORDER}❌ Order Rejected: {err}{RESET}")
+            return result
+        return result
     except Exception as e: return {'error': [str(e)]}
 
-def calculate_macd(ohlc_data, fast=MACD_FAST, slow=MACD_SLOW, signal=MACD_SIGNAL):
+def calculate_macd_proper(ohlc_data, fast=MACD_FAST, slow=MACD_SLOW, signal=MACD_SIGNAL):
     if len(ohlc_data) < slow + signal: return None, None, None
     closes = [c['close'] for c in ohlc_data]
     def ema(data, span):
-        alpha = 2/(span+1); vals = [data[0]]
+        alpha = 2 / (span + 1); vals = [data[0]]
         for v in data[1:]: vals.append(alpha*v + (1-alpha)*vals[-1])
         return vals
     fast_ema, slow_ema = ema(closes, fast), ema(closes, slow)
@@ -201,6 +218,7 @@ def calculate_macd(ohlc_data, fast=MACD_FAST, slow=MACD_SLOW, signal=MACD_SIGNAL
     signal_line = ema(macd_line, signal)
     return macd_line[-1], signal_line[-1], None
 
+# ========================== 🗺️ ZONE MACHINE ==========================
 class BestValueZoneMachine4Dec:
     def __init__(self, pair):
         self.pair = pair
@@ -211,20 +229,19 @@ class BestValueZoneMachine4Dec:
         self.best_sell_price = self.max_avg_high_seen = None
         self.best_buy_price = self.min_avg_low_seen = None
 
-    def initialize_zones(self):
-        print("Calculating Zones...")
-        ohlc = get_ohlc(self.pair, 1, MEDIAN_LOOKBACK)
-        if not ohlc or len(ohlc) < 10: print("Insufficient OHLC data!"); return False
-        highs = np.array([x['high'] for x in ohlc]); lows = np.array([x['low'] for x in ohlc])
+    def initialize_zones(self, ohlc_data):
+        if not ohlc_data or len(ohlc_data) < 10: return False
+        highs = np.array([x['high'] for x in ohlc_data]); lows = np.array([x['low'] for x in ohlc_data])
         self.median = float((np.median(highs) + np.median(lows)) / 2)
         nl, nu = round(self.median - ZONE_BUFFER/2, 4), round(self.median + ZONE_BUFFER/2, 4)
         self.neutral_zone = (nl, nu)
         self.buy_zone = (round(nl - BUY_ZONE_EXTRA, 4), nl)
         self.sell_zone = (nu, round(nu + SELL_ZONE_EXTRA, 4))
-        self._reset_trackers(); return True
+        self._reset_trackers()
+        return True
 
     def _reset_trackers(self):
-        self.sell_highs, self.buy_lows = [], []
+        self.sell_highs = self.buy_lows = []
         self.in_sell_zone = self.in_buy_zone = False
         self.best_sell_price = self.best_buy_price = self.max_avg_high_seen = self.min_avg_low_seen = None
 
@@ -271,40 +288,26 @@ class BestValueZoneMachine4Dec:
             if calculate_precise_profit(entry_price, self.best_sell_price, token_amount) >= MIN_PROFIT: return self.best_sell_price
         return None
 
-# ========================== 🖥️ EXACT REQUESTED DASHBOARD ==========================
-def print_dashboard(price, zone_machine, trend, active, amt, profit_usd, last_type, entry_price):
-    # 🎨 COLOR SCHEME
-    B = "\033[95m"  # Light Purple (Borders)
-    T = "\033[31m"  # Dark Red (Titles)
-    S = "\033[33m"  # Yellow (Subtitles)
-    N = "\033[32m"  # Darkened Green (Numbers)
-    G = "\033[92m"  # Bright Green (Profit +)
-    R = "\033[91m"  # Bright Red (Profit -)
-    X = "\033[0m"   # Reset
-
-    # Data Prep
-    zone = zone_machine.price_zone(price)
-    profit_color = G if profit_usd >= 0 else R
+# ========================== 🖥️ EXACT DASHBOARD PRINTER ==========================
+def print_dashboard(price, zone_machine, trend, active, amt, profit_usd, last_type, entry_price, hist_avg_high, hist_avg_low, hist_median):
+    zone = zone_machine.price_zone(price) if zone_machine else "UNKNOWN"
+    profit_color = PROF_P if profit_usd >= 0 else PROF_N
     profit_str = f"{profit_usd:+.2f}"
-    avg_h = np.mean(zone_machine.sell_highs) if zone_machine.sell_highs else 0.0
-    avg_l = np.mean(zone_machine.buy_lows) if zone_machine.buy_lows else 0.0
-    med = zone_machine.median if zone_machine else 0.0
 
-    # 🖨️ PRINT BLOCK
-    print(f"\n{B}====== {T}ZONES{B} ====={X}")
-    print(f"{S}sell:{X} {N}${zone_machine.sell_zone[0]:.4f}{X} - {N}${zone_machine.sell_zone[1]:.4f}{X}")
-    print(f"{S}neutral:{X} {N}${zone_machine.neutral_zone[0]:.4f}{X} - {N}${zone_machine.neutral_zone[1]:.4f}{X}")
-    print(f"{S}buy:{X} {N}${zone_machine.buy_zone[0]:.4f}{X} - {N}${zone_machine.buy_zone[1]:.4f}{X}")
-    print(f"{B}====== {T}POSITION{B} =========={X}")
-    print(f"{S}Zone:{X} {N}{zone}{X} {S}| Trend:{X} {N}{trend}{X}")
-    print(f"{S}avg high:{X} {N}${avg_h:.4f}{X} {S}| avg low:{X} {N}${avg_l:.4f}{X}")
-    print(f"{S}median price:{X} {N}${med:.4f}{X}")
-    print(f"{B}====== {T}MARKET STATUS{B} ======{X}")
-    print(f"{S}Status:{X} {N}{'ACTIVE' if active else 'WAITING'}{X} {S}| Last Action:{X} {N}{last_type}{X}")
-    print(f"{S}active tokens:{X} {N}{amt:.8f}{X}")
-    print(f"{S}entry price:{X} {N}${entry_price:.4f}{X} {S}| Current Price:{X} {N}${price:.4f}{X}")
-    print(f"{profit_color}profit margin: {profit_str}{X}")
-    print(f"{B}==========================={X}")
+    print(f"\n{BORDER}====== {TITLE}ZONES{BORDER} ====={RESET}")
+    print(f"{SUB}sell:{RESET} {NUM}${zone_machine.sell_zone[0]:.4f}{RESET} - {NUM}${zone_machine.sell_zone[1]:.4f}{RESET}")
+    print(f"{SUB}neutral:{RESET} {NUM}${zone_machine.neutral_zone[0]:.4f}{RESET} - {NUM}${zone_machine.neutral_zone[1]:.4f}{RESET}")
+    print(f"{SUB}buy:{RESET} {NUM}${zone_machine.buy_zone[0]:.4f}{RESET} - {NUM}${zone_machine.buy_zone[1]:.4f}{RESET}")
+    print(f"{BORDER}====== {TITLE}POSITION{BORDER} =========={RESET}")
+    print(f"{SUB}Zone:{RESET} {NUM}{zone}{RESET} {SUB}| Trend:{RESET} {NUM}{trend}{RESET}")
+    print(f"{SUB}avg high:{RESET} {NUM}${hist_avg_high:.4f}{RESET} {SUB}| avg low:{RESET} {NUM}${hist_avg_low:.4f}{RESET}")
+    print(f"{SUB}median price:{RESET} {NUM}${hist_median:.4f}{RESET}")
+    print(f"{BORDER}====== {TITLE}MARKET STATUS{BORDER} ======{RESET}")
+    print(f"{SUB}Status:{RESET} {NUM}{'ACTIVE' if active else 'WAITING'}{RESET} {SUB}| Last Action:{RESET} {NUM}{last_type}{RESET}")
+    print(f"{SUB}active tokens:{RESET} {NUM}{amt:.8f}{RESET}")
+    print(f"{SUB}entry price:{RESET} {NUM}${entry_price:.4f}{RESET} {SUB}| Current Price:{RESET} {NUM}${price:.4f}{RESET}")
+    print(f"{profit_color}profit margin: {profit_str}{RESET}")
+    print(f"{BORDER}==========================={RESET}")
 
 # ========================== 🎛️ CONTROL PANEL ==========================
 def config_monitor():
@@ -317,16 +320,28 @@ def config_monitor():
             elif cmd == 'b': manual_trigger_queue.put("BUY")
             elif cmd == 's': manual_trigger_queue.put("SELL")
             elif cmd == 'i':
-                try: INVESTMENT_AMOUNT = float(input("New Investment ($): ")); print(f"Updated: ${INVESTMENT_AMOUNT:.2f}")
+                try:
+                    with config_lock: INVESTMENT_AMOUNT = float(input("New Investment ($): "))
+                    print(f"Updated: ${INVESTMENT_AMOUNT:.2f}")
                 except: print("Invalid")
             elif cmd == 't':
-                TRADING_PAIR = input("New pair: ").upper(); KRAKEN_PAIR = get_valid_kraken_pair(TRADING_PAIR); print(f"Pair: {KRAKEN_PAIR}")
+                with config_lock:
+                    TRADING_PAIR = input("New pair: ").upper()
+                    KRAKEN_PAIR = get_valid_kraken_pair(TRADING_PAIR)
+                    print(f"Pair: {KRAKEN_PAIR}")
             elif cmd == 'm':
-                try: MIN_PROFIT = float(input("New Min Profit ($): ")); print(f"Updated: ${MIN_PROFIT:.2f}")
+                try:
+                    with config_lock: MIN_PROFIT = float(input("New Min Profit ($): "))
+                    print(f"Updated: ${MIN_PROFIT:.2f}")
                 except: print("Invalid")
             elif cmd == 'l':
-                try: MAX_SLIPPAGE_PCT = float(input("New Max Slippage (%): "))/100.0; print(f"Updated: {MAX_SLIPPAGE_PCT*100:.4f}%")
+                try:
+                    with config_lock: MAX_SLIPPAGE_PCT = float(input("New Max Slippage (%): "))/100.0
+                    print(f"Updated: {MAX_SLIPPAGE_PCT*100:.4f}%")
                 except: print("Invalid")
+            elif cmd == 'c':
+                with config_lock:
+                    print(f"\nCurrent Config: Inv=${INVESTMENT_AMOUNT:.2f} | Pair={TRADING_PAIR} | MinProf=${MIN_PROFIT:.2f} | Slip={MAX_SLIPPAGE_PCT*100:.4f}%")
         except (EOFError, KeyboardInterrupt): break
 
 # ========================== 🧠 MAIN LOOP ==========================
@@ -335,8 +350,6 @@ def main():
     
     KRAKEN_PAIR = get_valid_kraken_pair(TRADING_PAIR)
     zone_machine = BestValueZoneMachine4Dec(KRAKEN_PAIR)
-    if not zone_machine.initialize_zones(): return
-    
     threading.Thread(target=config_monitor, daemon=True).start()
     print(f"🚀 Bot Started. Monitoring {KRAKEN_PAIR} continuously...")
 
@@ -359,23 +372,40 @@ def main():
             if not price: time.sleep(PRICE_CHECK_INTERVAL); continue
             price = round(price, 4)
 
+            # 📊 FETCH 5-HOUR OHLC FOR DASHBOARD & ZONES
+            ohlc_5h = get_ohlc(KRAKEN_PAIR, 1, MEDIAN_LOOKBACK)
+            if ohlc_5h and len(ohlc_5h) >= 10:
+                hist_highs = [c['high'] for c in ohlc_5h]
+                hist_lows = [c['low'] for c in ohlc_5h]
+                hist_avg_high = np.mean(hist_highs)
+                hist_avg_low = np.mean(hist_lows)
+                hist_median = float((np.median(hist_highs) + np.median(hist_lows)) / 2)
+                if not zone_machine.buy_zone: zone_machine.initialize_zones(ohlc_5h)
+            else:
+                hist_avg_high = hist_avg_low = hist_median = 0.0
+
+            # MACD Trend (1-hour for stability)
             trend = "neutral"
             try:
                 hour_ohlc = get_ohlc(KRAKEN_PAIR, 60, 100)
                 if hour_ohlc:
-                    macd, sig, _ = calculate_macd(hour_ohlc)
+                    macd, sig, _ = calculate_macd_proper(hour_ohlc)
                     if macd and sig: trend = "up" if macd > sig else "down"
             except: pass
             last_trend = trend
 
-            if zone_machine.zones_expired(price): zone_machine.initialize_zones(); time.sleep(PRICE_CHECK_INTERVAL); continue
+            if zone_machine.zones_expired(price): 
+                if ohlc_5h: zone_machine.initialize_zones(ohlc_5h)
+                time.sleep(PRICE_CHECK_INTERVAL); continue
 
+            # 🛡️ STOP-LOSS
             if active_position and price < entry_price * (1 - STOP_LOSS_PCT):
                 trig = price; lim = price * (1 - STOP_LOSS_LIMIT_BUFFER)
                 res = place_order('sell', token_amount, price, ordertype='stop-loss-limit', price2=trig)
                 if res and not res.get('error'): active_position = False; token_amount = 0; last_trade_time = time.time(); last_trade_type = "STOP-LOSS"
                 time.sleep(PRICE_CHECK_INTERVAL); continue
 
+            # Auto BUY
             if not active_position and (time.time() - last_trade_time > TRADE_MIN_INTERVAL):
                 bp = zone_machine.track_best_buy(price)
                 if bp is not None and trend != "down":
@@ -384,6 +414,7 @@ def main():
                         res = place_order('buy', amt, ep or price)
                         if res and not res.get('error'): active_position = True; entry_price = ep or price; token_amount = amt; last_trade_time = time.time(); last_trade_type = "AUTO BUY"
 
+            # Auto SELL (Trend-Independent Profit Exit)
             if active_position:
                 sp = zone_machine.track_best_sell(price, entry_price, token_amount)
                 if sp is not None:
@@ -398,7 +429,7 @@ def main():
                                 if res and not res.get('error'): active_position = False; token_amount = 0; last_trade_time = time.time(); last_trade_type = "AUTO SELL"
 
             profit_usd = calculate_precise_profit(entry_price, price, token_amount) if active_position else 0.0
-            print_dashboard(price, zone_machine, last_trend, active_position, token_amount, profit_usd, last_trade_type, entry_price)
+            print_dashboard(price, zone_machine, last_trend, active_position, token_amount, profit_usd, last_trade_type, entry_price, hist_avg_high, hist_avg_low, hist_median)
             time.sleep(PRICE_CHECK_INTERVAL)
             
         except KeyboardInterrupt: print("\n⏹️ Exiting..."); sys.exit(0)
