@@ -1,236 +1,106 @@
-step one is in the read me face page
+the machine learner is put back on the board but the logic code block is pasted bellow this text
+the code block is made to be copy pasted into a nano file and ran using python file name
+to understand that nano files are made in command lines from you terminal 
+this one bellow is made to be used in termux but works accross debian distros
 
-1-buy an android phone, laptop or desktop-
-budget devices and basic educational information are what this is about
-there are 0 hardwear requirments other than that you have some to work with
-constant wifi connection even if it means leaving a device hidden in public
-and one of the 3 devices listed above
-im dreaming of an app for a ui shell 
-and a hard drive i can disconnect from a display to leave plugged in somewhere
-
-
-2-make a kraken account-
-
-(first get comfortable make an account) 
-its easier to add credencials in the app than on the site
-but only the site has api settings
- (you can download the app make and account; add your cradentcials, attain funding)
-Then log into a browser after for api callers and keys
-when on the site you should first close all the data pop ups you dont want to keep
-or theyll slow down your computer...
-then open settings in the top right of the page
-on the far right side of the tool bar youll see connections and api
-click it and make a few api sets saving the keys in a text file each time
-figured this out before starting the set up of the machine for use in terminal)
-
-
-3-use android-termux or debian arm terminals-
-start by installing these listed dependancies into the terminal
-
--OPTION 1) Debian (apt) Machine learning modle /and/or/ machine script
-
-youll need the device of your choosing
-if a laptop/desktop
-make sure this isnt you personal device or that you confortably can alter you personal device 
-so unless your comfortable with chaging your computer to linux forever
-make some sticks by installing the iso from 
 for new users: https://ubuntu.com/download/desktop
 for pen testers: https://www.kali.org/get-kali/#kali-installer-images
 for i dont know why you picked this one...
-there must be something wrong with you...
-https://www.qubes-os.org/
+there must be something wrong with you... https://www.qubes-os.org/     
+to use these youll have to make a -boot stick- and or 
+partition your computer/blank stick to contain an ubuntu 
+boot along side or inplace of its operating system
+theres instructions for this online if you go looking
 
-and loading it into a usb to reboot your computer to 
-by entering the bios menu and selecting the drive
-youll be prompted with a directory asking what part of its kernel you want activated
-click the install option and set up the linux operating system
+-----------------------------------------------------
+when installed and configured open your terminal and type 
+sudo apt upgdate
+sudo apt upgrade
+this will update your terminal software 
 
-alternativly an external hardrive to use as a the boot stick
-or a second usb stick to install the boot into 
-in place of the internal hardrive should be fine
--32gb usb booter not reccomended if youre putting the whole computer into a stick use 64+
-i have a laptop with 2 internal hardrives cost me 200 bucks and some scrapping
-but good parts Are hard to come by
-
-ive never done this from a chrome book but im sure theres recourses online for those steps
-unless chrome has gone so restricing as to not allow bios altercating
-
-so in a standard windows computer youll have to download
-one of either -belena etcher- or -rufus-
-these are disk immage writers
-next youll have to install the debian distrabution of your choice
-ubuntu, kali purple(scrolldown), qubesOS, debian straigt up... ect...
-then use those writers to flash its iso to a usb drive and reboot your computer from the drive
-install the operating system to your selected drive 
-and reboot the computer on that device youve made
-
-lvm encryptions are recomended 
-and while in bios
-you should also make an admin password for your computer
-both to keep out unwanted users
-as would be your regular user password
-the differance being security-accesablility and permitions
-admin lock - LVM disk crypt - user access
-this would be tripple layer security 
----on your home device not IP---
-
-now that you have a debian system operating ...ubuntu...
-
-  - Install system packages in terminal:
-i start with fire wall, vpn and a password manager
-sudo apt install ufw
-sudo ufw enable
-sudo ufw default allow out going 
+suto apt install ufw
 sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw enable
+this will install set up and start a fire wall
 
-these next 2 should make app icons
-sudo apt install keepassxc
 sudo apt install riseup-vpn
-check for updates
+sudo apt install keepassxc
+vpn and password/in app document maneger
 
--when thats all done youll need these dependancies before making the nano file 
+---------------------------------------------
+now youll need a kraken account do this in browser not on the app
+only the browser can make api keys 
+but the app will do a better job at verifying your identity
+on your phone you can enable desktop environment 
+for your browser in that tabs site setting
+figure out the site and its workings before moving on
+                             With api keys copy pasted to a text file in a note pad
+                             they look like this 
 
-sudo apt update && sudo apt install -y pip pipx git tmux curl wget build-essential libssl-dev libffi-dev
-    
-    sudo apt install python3-setuptools
-    sudo apt install python3-wheel  
-    sudo apt install python3-requests 
-    sudo apt install python3-numpy 
-    sudo apt install python3-pandas
+6XXys+02yJxb2+9r9H0E18jCtQ2miz7PmdVKEpNKListtvWjMKtpkkvg
 
-    sudo apt install python3-sklearn   #for the ML modle#
+Ptk9PonOn4qZ6PdR1gtTsEgvSRMHwjhKqkmyAUrP4iDNT/PS4d0KP8WW/Zd48V3RwCJ4+e0Ys7Tor1AVDClJRw==
 
-and then make the nano file by typing nano <file name> into your terminal
-copy paste the script from either script page into the nano file
-save it | ctrl+x | y | enter |
-and then edit the file to add api keys and fix parameters
+theres a site directory in the browser that lets you make them for this reason
 
-start it by typing python filename |or sometimes| python3 filename
+-----------------------------------------------
+now python and the nano file
+to finish the set up of your terminal 
+youll need to install the dependacies this script relys on to...
+to do math,... n be readn, n stuff...
 
--OPTION 2 Andriod Termux) mostly the same much easier
-you could use google play if you dont personaly give a shit about trackers and data privacy
-or you could do what i do
-install f-droid's apk from the internet 
-use it to install termux and its api tool kit allong with the aurora store
-arrora is where youll get things like the kraken app...
-- the browser you might use - riseup vpn...
+they are these 2 lines following 
+copy pasted into the terminal
+one at a time
 
-----ways to avoid trackers----geting the f-droid apk---- 
-firefox, duckduckgo, tor + extensions ublock, privacy badger, clearurls 
+sudo apt install python numpy clang fftw libgmp libmpc mpfr openssl
 
+sudo pip install scikit-learn scipy joblib requests
 
--when you have the termux terminal alone in your posetion 
-youll have to install the dependacies
+sudo apt update
+sudo apt upgrade
 
-pkg update -y && pkg upgrade
+-----------------------------------------
+in termux this is mostly the same 
+but unless your terminal is rooted 
+you can only use the non ml version
+and termux's terminal 
+uses pkg instead of apt 
+sudo is for root privlage
 
-pkg install -y python git tmux curl wget clang make openssl-tool libffi make cmake ninja patchelf
-    
-    pip install setuptools wheel
-    pip install requests 
-    pip install numpy
-    pip install pandas
+pkg update 
+pkg upgrade 
+pkg install
 
-in termux make the nano file by typing nano <file name> into your terminal
-copy paste the script from the non ML page into the nano file
-save it using | ctrl+x | y | enter | 
-and then edit the file to add api keys and fix parameters
-
-start it by typing python filename
-
-step 4)
--check the terminal 
-pkg update
-pkg upgrade
--look over your kraken account information
--check the nano file for api keys/the machines configurations
-
-step 5)
--allocate on your kraken account $20+ to the machine-
-by leaving it accessably in the kraken account as your base curency
-its good to make sure you can pay for more than the coin is worth
-when started let it run for a day make sure to keep an eye on it
-if it fails see that the market you pick isnt in a decline
-and check the figures in the nano file offered in the configuration information tab 
-to be sure they values to match the  chosen market
-saddly i cant personaly make a range that works every time 
-because where LTC right now is 85-95
-BTC is still up over 100K
-the figures just cant match every time
-so youll have to do that yourslef 
-the configurations file will give you some information the in script snips wont
+----------------------------------------------------------------
+to open a nano file type into the terminal
+nano filename then hit enter 
+copy paste the script down there into the nano file 
+ctrl+x y enter
+reopen it and configure the machine 
+entering the api keys and fixing your paramaters
+ctrl+x y enter
+lastly in terminal type 
+python3 filename and hit enter
+or python filename in kali or termux
+it should print this ticket
 
 
-NOTE
--this machine is tested to run in both terminals-
-----on a good day 
-with $12.34 set to fold XMR
-this machine is known to turn over 25-40 cent trades once or twice an hour
-this depends fully on the market flux; and the ratio (coin price/spend limit)
-
---> do not close the terminal unless you want to terminate the session With the machine <--
---> using ctrl+c amid run will pause function q | enter will resume
---> check setting in linux for sleep timmer instances
---> use wake lock in termux by scrolling down from the top
-
-------------------------------------------------------------
--->example start out put<-- 11/03/2025 12:30pm ets
-------------------------------------------------------------
-
-─$ python Loser
-Starting Depth-Aware Trading Bot (avg-entry ±0.15%)
-Using pair format: XMRUSD
-Calculating Zones...
-=== ZONES INITIALIZED ===
-Median:      $345.8625
-Buy Zone:    [$311.9325 - $345.2625]
-Neutral Zone:[$345.2625 - $346.4625]
-Sell Zone:   [$346.4625 - $379.7925]
-=========================
-
-Configuration Active!
-Commands: 'b'=buy now, 's'=sell now, 'i'=investment, 't'=trading pair, 'c'=show config, 'q'=quit
+🎛️ CONFIGURATION ACTIVE | Commands: b=buy, s=sell, i=invest, t=pair, m=min_profit, l=slippage, c=config, q=quit
+🚀 Bot Started. Monitoring LTCUSDC continuously...
 Config> 
-↗ Current Market Price: $340.0500 | Zone: BUY | Trend: down
-Zones — BUY: (311.9325, 345.2625), NEUTRAL: (345.2625, 346.4625), SELL: (346.4625, 379.7925)
-Active Position: False | Entry: $0.0000 | TokenAmt: 0.00000000
-Tracked BUY avg_low: None, min_avg_low_seen: None
-Entered BUY zone. Tracking lows. initial avg_low=340.0500
-BUY range condition met: price $340.0500 in [339.5399, 340.5601]. Signaling buy at ref $340.0500
-2025-11-03 17:29:42,557 INFO: Auto-buy skipped because trend != up (trend=down)
------------------------------------------------------------------------------------
----> the learner output as follows
------------------------------------------------------------------------------------
-
-─$ python ML
-Starting ML-Enhanced Depth-Aware Trading Bot
-[ML] Machine Learning: ENABLED
-Using pair format: ETHUSD
-Calculating Zones...
-=== ZONES INITIALIZED ===
-Median:      $3172.3500
-Buy Zone:    [$2945.6900 - $3167.9100]
-Neutral Zone:[$3167.9100 - $3176.7900]
-Sell Zone:   [$3176.7900 - $3399.0100]
-=========================
-[ML] Fetching historical data for initial training...
-[ML] Training models on 721 historical candles...
-[ML] Price predictor trained. RMSE: $1.1931
-[ML] Volatility predictor trained
-[ML] Pattern classifier trained. Accuracy: 100.0%
-[ML] Timing scorer trained
-
-Configuration Active!
-Commands: 'b'=buy now, 's'=sell now, 'i'=investment, 't'=trading pair, 'c'=show config, 'q'=quit
-Config> [ML] Pattern: UNKNOWN (conf: 0.0%) | Timing: 50.0% | Risk: 50.0%
-[ML] Market Regime: UNKNOWN (conf: 0.0%)
-[ML] Adaptive Thresholds: min_conf=0.62 max_risk=0.76
-
-↗ Current Market Price: $3197.6200 | Zone: SELL | Trend: up
-Zones – BUY: (2945.69, 3167.91), NEUTRAL: (3167.91, 3176.79), SELL: (3176.79, 3399.01)
-Active Position: False | Entry: $0.0000 | TokenAmt: 0.00000000
-Tracked SELL avg_high: None, max_avg_high_seen: None
-[ML] Pattern: UNKNOWN (conf: 0.0%) | Timing: 50.0% | Risk: 50.0%
-[ML] Market Regime: UNKNOWN (conf: 0.0%)
-[ML] Adaptive Thresholds: min_conf=0.62 max_risk=0.76
-
+====== ZONES =====
+sell: $57.5680 - $80.8980
+neutral: $53.3480 - $57.5680
+buy: $30.0180 - $53.3480
+====== POSITION ==========
+Zone: NEUTRAL | Trend: down
+avg high: $55.4331 | avg low: $55.4321
+median price: $55.4580
+====== MARKET STATUS ======
+Status: WAITING | Last Action: NONE
+active tokens: 0.00000000
+entry price: $0.0000 | Current Price: $55.2930
+profit margin: +0.00
+===========================
