@@ -2,7 +2,6 @@
 """
 Depth-Aware Trading Bot (Logic Only)
 ✅ MEDIAN_LOOKBACK = 300 (5 hours of 1-min candles)
-✅ Exact requested dashboard layout & color scheme
 ✅ avg high/low attached to lookback window using max/min (true swing range)
 ✅ Proper EMA MACD, trend-independent profit exits, robust Base64 signing
 ✅ No pause logic, thread-safe config, explicit error reporting
