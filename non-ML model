@@ -50,17 +50,17 @@ INVESTMENT_AMOUNT = 11.11        # Maximum amount to risk per trade (in quote cu
 FEE_RATE = 0.0036                # Kraken fee (0.36%)
 BOND_DECIMALS = 8                # Order amount precision
 MIN_PROFIT = 0.11                # Minimum profit in quote currency after fees
-STOP_LOSS_PCT = 0.1100           # 1.00% stop-loss trigger
-STOP_LOSS_LIMIT_BUFFER = 0.11   # 0.5% buffer for stop-loss limit orders
+STOP_LOSS_PCT = 0.1100           # 11.00% stop-loss trigger
+STOP_LOSS_LIMIT_BUFFER = 0.11   # 11.0% buffer for stop-loss limit orders
 MIN_ORDER_USD = 10.0             # Kraken minimum order value guard
 
 # --- AVG-ENTRY TUNING ---
 BUY_AT_LOWEST_AVERAGE = True     # If True, waits for average low to trigger buy
 SELL_AT_HIGHEST_AVERAGE = True   # If True, waits for average high to trigger sell
-ENTRY_RANGE_PCT = 0.0018          # ±1.8% around the tracked average
+ENTRY_RANGE_PCT = 0.0011          # ±0.11% around the tracked average
 
 # --- DEPTH / SLIPPAGE CONFIG ---
-MAX_SLIPPAGE_PCT = 0.011        # Maximum allowed slippage (0.18%)
+MAX_SLIPPAGE_PCT = 0.11        # Maximum allowed slippage (11.00%)
 MIN_LIQUIDITY_RATIO = 0.6        # Fill at least this fraction of requested amount within depth
 ORDERBOOK_DEPTH_LEVELS = 500     # Fetch up to 500 levels (max per Kraken call)
 
@@ -70,9 +70,9 @@ API_VERSION = "0"
 ZONE_BUFFER = 4.22               # Half-width of neutral zone in dollars
 SELL_ZONE_EXTRA = 23.33          # Extra above neutral zone for sell zone
 BUY_ZONE_EXTRA = 23.33           # Extra below neutral zone for buy zone
-PRICE_CHECK_INTERVAL = 30        # Seconds between main loop cycles
-ZONE_RESET_HOLD_TIME = 15       # Seconds outside all zones before recalculating
-MEDIAN_LOOKBACK = 524160            # 5 HOURS of 1-minute candles
+PRICE_CHECK_INTERVAL = 20        # Seconds between main loop cycles
+ZONE_RESET_HOLD_TIME = 10       # Seconds outside all zones before recalculating
+MEDIAN_LOOKBACK = 524160            # 300 = 5 HOURS of 1-minute candles
 
 # --- MACD PARAMETERS ---
 MACD_FAST = 12
@@ -375,14 +375,14 @@ def main():
             if ohlc and len(ohlc) >= 10:
                 highs = [x['high'] for x in ohlc]
                 lows = [x['low'] for x in ohlc]
-                aH = np.max(highs)
-                aL = np.min(lows)
+                aH = np.max(highs)   # True 5-hour swing high
+                aL = np.min(lows)    # True 5-hour swing low
                 aM = float((np.median(highs) + np.median(lows)) / 2)
                 if not zone_machine.buy_zone: zone_machine.initialize_zones(ohlc)
             else:
                 aH = aL = aM = 0.0
 
-            # MACD Trend (1-hour for stability)
+            # MACD Trend (For display only, no execution gating)
             trend = "neutral"
             try:
                 hour_ohlc = get_ohlc(KRAKEN_PAIR, 60, 100)
@@ -402,15 +402,15 @@ def main():
                 active_position = False; token_amount = 0; last_trade_time = time.time(); last_trade_type = "STOP-LOSS"
                 time.sleep(PRICE_CHECK_INTERVAL); continue
 
-            # Auto BUY
+            # Auto BUY (Trend-independent)
             if not active_position and (time.time() - last_trade_time > TRADE_MIN_INTERVAL):
-                if zone_machine.track_best_buy(price) and trend != "down":
+                if zone_machine.track_best_buy(price):
                     amt, ep, slip = dynamic_position_size(price, 'buy')
                     if amt > 0 and (slip is None or slip <= MAX_SLIPPAGE_PCT):
                         if not place_order('buy', amt, ep or price).get('error'):
                             active_position = True; entry_price = ep or price; token_amount = amt; last_trade_time = time.time(); last_trade_type = "AUTO BUY"
 
-            # Auto SELL (Trend-Independent Profit Exit)
+            # Auto SELL (Trend-independent Profit Exit)
             if active_position:
                 if zone_machine.track_best_sell(price, entry_price, token_amount):
                     ob = get_order_book(KRAKEN_PAIR)
