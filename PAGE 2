@@ -1,7 +1,11 @@
-the machine learner is put back on the board but the logic code block is pasted bellow this text
-the code block is made to be copy pasted into a nano file and ran using python file name
-to understand that nano files are made in command lines from you terminal 
-this one bellow is made to be used in termux but works accross debian distros
+the machine learner is put back on the board 
+but the logic code block is pasted in the non ml file tree branch
+the code block is made to be copy pasted 
+into a nano file and ran using the command python file name
+
+to understand that nano files are made in command lines from your terminal 
+this one bellow is made to be used in termux 
+but will also work accross debian distros
 
 for new users: https://ubuntu.com/download/desktop
 for pen testers: https://www.kali.org/get-kali/#kali-installer-images
@@ -12,6 +16,40 @@ partition your computer/blank stick to contain an ubuntu
 boot along side or inplace of its operating system
 theres instructions for this online if you go looking
 
+-----------------------------------------
+in termux this is mostly the same 
+but unless your terminal is rooted 
+you can only use the non ml version
+and termux's terminal uses pkg instead of apt... 
+sudo is for root privlage
+
+you wont be installing ufw or any of those others though
+instead install f-droid and from it aurrora store 
+look into personal security items firewalls, dns, proxies... 
+orbot is 'popular' darkweb proxy framework for your phone
+intra is a secure dns exchange for you web calling apps
+                         or dont you care
+
+pkg update
+pkg upgrade
+
+pkg install python
+
+pip install numpy requests
+
+pkg update
+pkg upgrade
+
+to open a nano file type into the terminal
+nano filename then hit enter 
+copy paste the script down there into the nano file 
+ctrl+x y enter
+reopen it and configure the machine 
+entering the api keys and fixing your paramaters
+ctrl+x y enter
+lastly in terminal type 
+python filename in termux
+it should print this ticket scroll to bottom
 -----------------------------------------------------
 when installed and configured open your terminal and type 
 sudo apt upgdate
@@ -60,24 +98,6 @@ sudo pip install scikit-learn scipy joblib requests
 
 sudo apt update
 sudo apt upgrade
-
------------------------------------------
-in termux this is mostly the same 
-but unless your terminal is rooted 
-you can only use the non ml version
-and termux's terminal uses pkg instead of apt... 
-sudo is for root privlage
-
-you wont be installing ufw or any of those others though
-instead install f-droid and from it aurrora store 
-look into personal security items firewalls, dns, proxies... 
-orbot is 'popular' darkweb proxy framework for your phone
-intra is a secure dns exchange for you web calling apps
-                         or dont you care
-
-pkg update 
-pkg upgrade 
-pkg install
 
 ----------------------------------------------------------------
 to open a nano file type into the terminal
