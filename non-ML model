@@ -72,7 +72,7 @@ SELL_ZONE_EXTRA = 433            # Extra above neutral zone for sell zone
 BUY_ZONE_EXTRA = 433             # Extra below neutral zone for buy zone
 PRICE_CHECK_INTERVAL = 20        # Seconds between main loop cycles
 ZONE_RESET_HOLD_TIME = 10        # Seconds outside all zones before recalculating
-MEDIAN_LOOKBACK = 524160         # ~1 year of 1-minute candles (Drives all parameters)
+MEDIAN_LOOKBACK = 524160         # 300 = to 5 hours of 1-minute candles (Drives all parameters)
 
 # --- MACD PARAMETERS ---
 MACD_FAST = 12
