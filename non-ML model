@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
 Depth-Aware Trading Bot (Logic Only)
-✅ MEDIAN_LOOKBACK = 524160 (~1 year) drives all parameters & zones
-✅ Trend-Independent Execution (Relies on Zone Signals + Profit Expectations)
-✅ FIXED: Auto-trades print detailed tickets identical to manual trades
-✅ FIXED: Sell requires BOTH zone condition AND min profit (no premature exits)
+✅ CONSERVATIVE BUY: Requires zone + support hold + trend confirmation + tight spread
+✅ SMART SELL: Profit target priority > zone exit > trend reversal protection
+✅ EXACT DASHBOARD LAYOUT as requested
+✅ MEDIAN_LOOKBACK = 300 (5h) equation preserved
 ✅ Ctrl+C = Pause Menu (r=resume, q=quit, b/s=immediate trade)
-✅ Manual commands bypass cooldowns/filters & always print tickets
-✅ Safe state updates & txid parsing
+✅ Auto-cooldown hard-capped at 120s, manual triggers bypass all filters
 """
 
 import numpy as np
@@ -16,7 +15,6 @@ import time
 import threading
 import logging
 import sys
-import time as time_mod
 from queue import Queue
 import hashlib
 import hmac
@@ -26,7 +24,7 @@ import urllib.parse
 # ======== ANSI COLOR CODES ========
 BORDER = "\033[95m"   # Light Purple (Borders)
 TITLE  = "\033[31m"   # Dark Red (Titles)
-SUB    = "\033[93m"   # Yellow (Subtitles)
+SUB    = "\033[33m"   # Yellow (Subtitles)
 NUM    = "\033[32m"   # Darkened Green (Numbers)
 PROF_P = "\033[92m"   # Bright Green (Profit +)
 PROF_N = "\033[91m"   # Bright Red   (Profit -)
@@ -38,8 +36,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(mes
 # 🎛️ CONTROL PANEL / CONFIGURATION
 # ========================================
 # --- API CREDENTIALS ---
-API_KEY = "_____"       # <-- REPLACE ONLY THIS WITH API KEY
-API_SECRET = "_____"    # <-- REPLACE ONLY THIS BLOCK WITH SECRET KEY
+API_KEY = "____"       # <-- REPLACE ONLY THIS WITH API KEY
+API_SECRET = "____"    # <-- REPLACE ONLY THIS BLOCK WITH SECRET KEY
 if API_KEY == "_____" or API_SECRET == "_____":
     raise ValueError("Please replace the placeholder API keys with your actual Kraken keys.")
 
@@ -50,8 +48,8 @@ INVESTMENT_AMOUNT = 11.11        # Maximum amount to risk per trade (in quote cu
 FEE_RATE = 0.0036                # Kraken fee (0.36%)
 BOND_DECIMALS = 8                # Order amount precision
 MIN_PROFIT = 0.11                # Minimum profit in quote currency after fees
-STOP_LOSS_PCT = 0.1100           # 11.00% stop-loss trigger
-STOP_LOSS_LIMIT_BUFFER = 0.110   # 11.0% buffer for stop-loss limit orders
+STOP_LOSS_PCT = 0.1870           # 18.70% stop-loss trigger
+STOP_LOSS_LIMIT_BUFFER = 0.1110   # 11.1% buffer for stop-loss limit orders
 MIN_ORDER_USD = 10.0             # Kraken minimum order value guard
 
 # --- AVG-ENTRY TUNING ---
@@ -60,19 +58,21 @@ SELL_AT_HIGHEST_AVERAGE = True   # If True, waits for average high to trigger se
 ENTRY_RANGE_PCT = 0.0011         # ±0.11% around the tracked average
 
 # --- DEPTH / SLIPPAGE CONFIG ---
-MAX_SLIPPAGE_PCT = 0.11          # Maximum allowed slippage (11.0%)
+MAX_SLIPPAGE_PCT = 0.21          # 🔒 TIGHTENED: Max 21% slippage for safer exits
 MIN_LIQUIDITY_RATIO = 0.6        # Fill at least this fraction of requested amount within depth
-ORDERBOOK_DEPTH_LEVELS = 500     # Fetch up to 500 levels (max per Kraken call)
+ORDERBOOK_DEPTH_LEVELS = 50000     # Fetch up to 500 levels (max per Kraken call)
+MAX_BID_ASK_SPREAD_PCT = 0.008   # 🔒 BLOCK BUY if spread > 0.5%
 
 # --- API & ZONE CONFIG ---
 API_URL = "https://api.kraken.com"
 API_VERSION = "0"
 ZONE_BUFFER = 0.72               # Half-width of neutral zone in dollars
-SELL_ZONE_EXTRA = 433            # Extra above neutral zone for sell zone
-BUY_ZONE_EXTRA = 433             # Extra below neutral zone for buy zone
+SELL_ZONE_EXTRA = 4.33            # Extra above neutral zone for sell zone
+BUY_ZONE_EXTRA = 4.33             # Extra below neutral zone for buy zone
 PRICE_CHECK_INTERVAL = 20        # Seconds between main loop cycles
 ZONE_RESET_HOLD_TIME = 10        # Seconds outside all zones before recalculating
-MEDIAN_LOOKBACK = 524160         # 300 = to 5 hours of 1-minute candles (Drives all parameters)
+MEDIAN_LOOKBACK = 524160            # ⚠️ 300 candles = 5 hours of 1-minute data
+AUTO_COOLDOWN_SEC = 21          # ⏱️ Hard cap: Auto trades wait max 2 minutes between entries
 
 # --- MACD PARAMETERS ---
 MACD_FAST = 12
@@ -88,7 +88,6 @@ token_amount = 0.0
 outside_zone_since = None
 manual_trigger_queue = Queue()
 last_trade_time = 0
-TRADE_MIN_INTERVAL = 60
 last_trend = "UNKNOWN"
 last_trade_type = "NONE"
 trading_paused = False
@@ -163,80 +162,29 @@ def calc_macd(ohlc, f=MACD_FAST, s=MACD_SLOW, sig=MACD_SIGNAL):
     sl = ema(ml, sig)
     return ml[-1], sl[-1], None
 
-# ========================== TRADE TICKET PRINTER ==========================
-def print_ticket(side, status, price, amount, error=None, txid=None, trade_type="AUTO"):
-    print(f"\n{BORDER}====== {TITLE}TRADE TICKET{BORDER} ====={RESET}")
-    print(f"{SUB}Type:{RESET} {NUM}{side.upper()} ({trade_type}){RESET}")
-    print(f"{SUB}Status:{RESET} {NUM}{status}{RESET}")
-    print(f"{SUB}Price:{RESET} {NUM}${price:.4f}{RESET}")
-    print(f"{SUB}Amount:{RESET} {NUM}{amount:.8f}{RESET}")
-    if txid: print(f"{SUB}Kraken ID:{RESET} {NUM}{txid}{RESET}")
-    if error: print(f"{SUB}Reason:{RESET} {PROF_N}{error}{RESET}")
-    print(f"{SUB}Time:{RESET} {NUM}{time_mod.strftime('%H:%M:%S')}{RESET}")
-    print(f"{BORDER}==========================={RESET}\n")
-
-# ========================== IMMEDIATE MANUAL EXECUTION ==========================
-def execute_manual(side):
-    global active_position, entry_price, token_amount, last_trade_time, last_trade_type
-    price = get_ticker()
-    if not price:
-        print_ticket(side, "FAILED", 0.0, 0.0, error="Could not fetch market price", trade_type="MANUAL")
-        return
-    price = round(price, 4)
-
-    if side == "b":
-        if active_position:
-            print_ticket("BUY", "BLOCKED", price, 0.0, error="Already in position", trade_type="MANUAL")
-            return
+# ========================== OHLC MARKET STATE ==========================
+def analyze_market_state(ohlc, price):
+    """Returns (trend_state, avg_high, avg_low, momentum) based on lookback data"""
+    if not ohlc or len(ohlc) < 20:
+        return "neutral", 0.0, 0.0, 0.0
+    
+    highs = np.array([x['high'] for x in ohlc])
+    lows = np.array([x['low'] for x in ohlc])
+    closes = np.array([x['close'] for x in ohlc])
+    
+    avg_h = np.max(highs)
+    avg_l = np.min(lows)
+    recent_close = np.mean(closes[-5:])
+    old_close = np.mean(closes[-25:-5])
+    momentum = (recent_close - old_close) / old_close if old_close > 0 else 0
+    
+    if momentum > 0.02 and price > avg_l: state = "strong_up"
+    elif momentum > 0.005: state = "weak_up"
+    elif momentum < -0.02 and price < avg_h: state = "strong_down"
+    elif momentum < -0.005: state = "weak_down"
+    else: state = "neutral"
         
-        amt = INVESTMENT_AMOUNT / price
-        if amt * price < MIN_ORDER_USD:
-            print_ticket("BUY", "FAILED", price, amt, error="Below Kraken min order ($10)", trade_type="MANUAL")
-            return
-
-        print(f"{NUM}🚀 Sending MANUAL BUY for {amt:.8f} @ ~${price:.4f}...{RESET}")
-        res = place_order('buy', amt, price)
-        
-        if res and not res.get('error'):
-            active_position = True
-            entry_price = price
-            token_amount = amt
-            last_trade_time = time.time()
-            last_trade_type = "MANUAL BUY"
-            txid = "N/A"
-            try:
-                txid_list = res.get('result', {}).get('txid', [])
-                if isinstance(txid_list, list) and len(txid_list) > 0:
-                    txid = txid_list[0]
-            except: pass
-            print_ticket("BUY", "SUCCESS", price, amt, txid=txid, trade_type="MANUAL")
-        else:
-            err = res.get('error', ['Unknown'])[0] if isinstance(res.get('error'), list) else 'No response'
-            print_ticket("BUY", "REJECTED", price, amt, error=err, trade_type="MANUAL")
-
-    elif side == "s":
-        if not active_position or token_amount <= 0:
-            print_ticket("SELL", "BLOCKED", price, 0.0, error="No active position", trade_type="MANUAL")
-            return
-
-        print(f"{NUM}💰 Sending MANUAL SELL for {token_amount:.8f} @ ~${price:.4f}...{RESET}")
-        res = place_order('sell', token_amount, price)
-        
-        if res and not res.get('error'):
-            active_position = False
-            token_amount = 0
-            last_trade_time = time.time()
-            last_trade_type = "MANUAL SELL"
-            txid = "N/A"
-            try:
-                txid_list = res.get('result', {}).get('txid', [])
-                if isinstance(txid_list, list) and len(txid_list) > 0:
-                    txid = txid_list[0]
-            except: pass
-            print_ticket("SELL", "SUCCESS", price, token_amount, txid=txid, trade_type="MANUAL")
-        else:
-            err = res.get('error', ['Unknown'])[0] if isinstance(res.get('error'), list) else 'No response'
-            print_ticket("SELL", "REJECTED", price, token_amount, error=err, trade_type="MANUAL")
+    return state, avg_h, avg_l, momentum
 
 # ========================== ZONE MACHINE ==========================
 class ZoneMachine:
@@ -262,21 +210,68 @@ class ZoneMachine:
         if self.sell_zone and self.sell_zone[0] < p <= self.sell_zone[1]: return "SELL"
         return "OUTSIDE"
 
-    def buy_sig(self, p):
-        # Trend Independent: Just check if in Buy Zone
-        return self.zone(p) == "BUY"
+# ========================== TRADE TICKET PRINTER ==========================
+def print_ticket(side, status, price, amount, error=None, txid=None, trade_type="AUTO"):
+    print(f"\n{BORDER}====== {TITLE}TRADE TICKET{BORDER} ====={RESET}")
+    print(f"{SUB}Type:{RESET} {NUM}{side.upper()} ({trade_type}){RESET}")
+    print(f"{SUB}Status:{RESET} {NUM}{status}{RESET}")
+    print(f"{SUB}Price:{RESET} {NUM}${price:.4f}{RESET}")
+    print(f"{SUB}Amount:{RESET} {NUM}{amount:.8f}{RESET}")
+    if txid: print(f"{SUB}Kraken ID:{RESET} {NUM}{txid}{RESET}")
+    if error: print(f"{SUB}Reason:{RESET} {PROF_N}{error}{RESET}")
+    print(f"{SUB}Time:{RESET} {NUM}{time.strftime('%H:%M:%S')}{RESET}")
+    print(f"{BORDER}==========================={RESET}\n")
 
-    def sell_sig(self, p, ep, amt):
-        # ✅ FIX: Require BOTH zone condition AND min profit
-        in_sell_zone = self.zone(p) == "SELL"
-        profit = calc_profit(ep, p, amt)
-        profit_met = profit >= MIN_PROFIT
-        return in_sell_zone and profit_met
+# ========================== IMMEDIATE MANUAL EXECUTION ==========================
+def execute_manual(side):
+    global active_position, entry_price, token_amount, last_trade_time, last_trade_type
+    price = get_ticker()
+    if not price:
+        print_ticket(side, "FAILED", 0.0, 0.0, error="Could not fetch market price", trade_type="MANUAL")
+        return
+    price = round(price, 4)
 
-# ========================== DASHBOARD ==========================
+    if side == "b":
+        if active_position:
+            print_ticket("BUY", "BLOCKED", price, 0.0, error="Already in position", trade_type="MANUAL")
+            return
+        amt = INVESTMENT_AMOUNT / price
+        if amt * price < MIN_ORDER_USD:
+            print_ticket("BUY", "FAILED", price, amt, error="Below Kraken min order ($10)", trade_type="MANUAL")
+            return
+        print(f"{NUM}🚀 Sending MANUAL BUY for {amt:.8f} @ ~${price:.4f}...{RESET}")
+        res = place_order('buy', amt, price)
+        if res and not res.get('error'):
+            active_position = True; entry_price = price; token_amount = amt; last_trade_time = time.time(); last_trade_type = "MANUAL BUY"
+            txid = "N/A"
+            try: txid = res.get('result', {}).get('txid', [])[0] if res.get('result', {}).get('txid') else "N/A"
+            except: pass
+            print_ticket("BUY", "SUCCESS", price, amt, txid=txid, trade_type="MANUAL")
+        else:
+            err = res.get('error', ['Unknown'])[0] if isinstance(res.get('error'), list) else 'No response'
+            print_ticket("BUY", "REJECTED", price, amt, error=err, trade_type="MANUAL")
+
+    elif side == "s":
+        if not active_position or token_amount <= 0:
+            print_ticket("SELL", "BLOCKED", price, 0.0, error="No active position", trade_type="MANUAL")
+            return
+        print(f"{NUM}💰 Sending MANUAL SELL for {token_amount:.8f} @ ~${price:.4f}...{RESET}")
+        res = place_order('sell', token_amount, price)
+        if res and not res.get('error'):
+            active_position = False; token_amount = 0; last_trade_time = time.time(); last_trade_type = "MANUAL SELL"
+            txid = "N/A"
+            try: txid = res.get('result', {}).get('txid', [])[0] if res.get('result', {}).get('txid') else "N/A"
+            except: pass
+            print_ticket("SELL", "SUCCESS", price, token_amount, txid=txid, trade_type="MANUAL")
+        else:
+            err = res.get('error', ['Unknown'])[0] if isinstance(res.get('error'), list) else 'No response'
+            print_ticket("SELL", "REJECTED", price, token_amount, error=err, trade_type="MANUAL")
+
+# ========================== 🖥️ EXACT DASHBOARD ==========================
 def print_dash(price, zm, trend, act, amt, prof, lt, ep, aH, aL, aM):
-    z = zm.zone(price) if zm else "UNK"
+    z = zm.zone(price) if zm.buy_zone else "UNK"
     pc = PROF_P if prof >= 0 else PROF_N
+    spent = ep * amt if act else 0.00
     
     print(f"\n{BORDER}====== {TITLE}ZONES{BORDER} ====={RESET}")
     print(f"{SUB}sell:{RESET} {NUM}${zm.sell_zone[0]:.4f}{RESET} - {NUM}${zm.sell_zone[1]:.4f}{RESET}")
@@ -285,10 +280,10 @@ def print_dash(price, zm, trend, act, amt, prof, lt, ep, aH, aL, aM):
     print(f"{BORDER}====== {TITLE}POSITION{BORDER} =========={RESET}")
     print(f"{SUB}Zone:{RESET} {NUM}{z}{RESET} {SUB}| Trend:{RESET} {NUM}{trend}{RESET}")
     print(f"{SUB}median price:{RESET} {NUM}${aM:.4f}{RESET}")
-    print(f"{SUB}avg high:{RESET} {NUM}${aH:.4f}{RESET} {SUB}| avg low:{RESET} {NUM}${aL:.4f}{RESET}")
+    print(f"{SUB}avg low:{RESET} {NUM}${aL:.4f}{RESET} {SUB}| avg high:{RESET} {NUM}${aH:.4f}{RESET}")
     print(f"{BORDER}====== {TITLE}MARKET STATUS{BORDER} ======{RESET}")
-    print(f"{SUB}entry price:{RESET} {NUM}${ep:.4f}{RESET} {SUB}| Current Price:{RESET} {NUM}${price:.4f}{RESET}")
-    print(f"{SUB}active tokens:{RESET} {NUM}{amt:.8f}{RESET}")
+    print(f"{SUB}Current Price:{RESET} {NUM}${price:.4f}{RESET} {SUB}| last entry price:{RESET} {NUM}${ep:.4f}{RESET}")
+    print(f"{SUB}active tokens:{RESET} {NUM}{amt:.8f}{RESET} {SUB}| spent amount:{RESET} {NUM}${spent:.2f}{RESET}")
     print(f"{SUB}Status:{RESET} {NUM}{'ACTIVE' if act else 'WAITING'}{RESET} {SUB}| Last Action:{RESET} {NUM}{lt}{RESET}")
     print(f"{pc}profit margin: {prof:+.2f}{RESET}")
     print(f"{BORDER}==========================={RESET}")
@@ -310,19 +305,10 @@ def main():
                     cmd = input(f"\n{BORDER}[PAUSED] > {RESET}").strip().lower()
                 except (EOFError, KeyboardInterrupt):
                     continue
-                
-                if cmd == 'r': 
-                    trading_paused = False
-                    print(f"{PROF_P}▶️ RESUMED{RESET}")
-                    continue
-                elif cmd == 'q': 
-                    print("👋 Exiting...")
-                    sys.exit(0)
-                elif cmd in ('b', 's'):
-                    execute_manual(cmd)
-                    continue
-                else:
-                    print(f"{SUB}Unknown command. Use: r, q, b, s{RESET}")
+                if cmd == 'r': trading_paused = False; print(f"{PROF_P}▶️ RESUMED{RESET}"); continue
+                elif cmd == 'q': print("👋 Exiting..."); sys.exit(0)
+                elif cmd in ('b', 's'): execute_manual(cmd); continue
+                else: print(f"{SUB}Unknown command. Use: r, q, b, s{RESET}")
                 continue
 
             # ======== RUNNING STATE ========
@@ -330,72 +316,64 @@ def main():
             if not price: time.sleep(PRICE_CHECK_INTERVAL); continue
             price = round(price, 4)
 
-            # 1. Fetch OHLC (Drives all parameters & zones)
+            # 1. Fetch OHLC & Analyze Market State
             ohlc = get_ohlc(KRAKEN_PAIR, 1, MEDIAN_LOOKBACK)
-            if ohlc and len(ohlc) >= 10:
-                aH = np.max([x['high'] for x in ohlc])
-                aL = np.min([x['low'] for x in ohlc])
-                aM = float((np.median([x['high'] for x in ohlc]) + np.median([x['low'] for x in ohlc])) / 2)
-                if not zm.buy_zone: zm.init(ohlc)
-            else:
-                aH = aL = aM = 0.0
+            market_state, aH, aL, momentum = analyze_market_state(ohlc, price)
+            aM = float((np.median([x['high'] for x in ohlc]) + np.median([x['low'] for x in ohlc])) / 2) if ohlc else 0.0
+            if not zm.buy_zone and ohlc: zm.init(ohlc)
 
             # 2. Trend Calculation (Display only)
-            trend = "neutral"
-            try:
-                ho = get_ohlc(KRAKEN_PAIR, 60, 100)
-                if ho: m, s, _ = calc_macd(ho); trend = "up" if m and s and m > s else "down"
-            except: pass
+            trend = market_state.replace("_", " ") if market_state != "neutral" else "neutral"
             last_trend = trend
 
-            # 3. Stop Loss Check
+            # 3. Stop Loss Check (Overrides All)
             if active_position and price < entry_price * (1 - STOP_LOSS_PCT):
                 res = place_order('sell', token_amount, price, ot='stop-loss-limit', p2=price * (1 - STOP_LOSS_LIMIT_BUFFER))
                 if res and not res.get('error'):
-                    txid = "N/A"
-                    try:
-                        txid_list = res.get('result', {}).get('txid', [])
-                        if isinstance(txid_list, list) and len(txid_list) > 0:
-                            txid = txid_list[0]
-                    except: pass
-                    print_ticket("SELL", "STOP-LOSS", price, token_amount, txid=txid, trade_type="AUTO")
                     active_position = False; token_amount = 0; last_trade_time = time.time(); last_trade_type = "STOP-LOSS"
+                    print_ticket("SELL", "STOP-LOSS", price, token_amount, trade_type="AUTO")
                 time.sleep(PRICE_CHECK_INTERVAL); continue
 
-            # 4. Auto BUY (Trend Independent + Zone Signal)
-            if not active_position and time.time() - last_trade_time > TRADE_MIN_INTERVAL:
-                if zm.buy_sig(price):
-                    amt = INVESTMENT_AMOUNT / price
-                    if amt * price >= MIN_ORDER_USD:
-                        res = place_order('buy', amt, price)
-                        if res and not res.get('error'):
-                            active_position = True; entry_price = price; token_amount = amt
-                            last_trade_time = time.time(); last_trade_type = "AUTO BUY"
-                            txid = "N/A"
-                            try:
-                                txid_list = res.get('result', {}).get('txid', [])
-                                if isinstance(txid_list, list) and len(txid_list) > 0:
-                                    txid = txid_list[0]
-                            except: pass
-                            print_ticket("BUY", "SUCCESS", price, amt, txid=txid, trade_type="AUTO")
+            current_profit = calc_profit(entry_price, price, token_amount) if active_position else 0.0
+            zone = zm.zone(price) if zm.buy_zone else "OUTSIDE"
+            ob = get_order_book(KRAKEN_PAIR)
 
-            # 5. Auto SELL (Trend Independent + Zone Signal + Min Profit)
+            # 🔵 CONSERVATIVE BUY LOGIC ("Afraid to Buy")
+            # Requires: In BUY zone + Holding above avg_low + Not in strong down + Tight spread + Cooldown met
+            can_buy = False
+            if not active_position and (time.time() - last_trade_time) > AUTO_COOLDOWN_SEC:
+                if zone == "BUY" and price >= aL * 0.995 and market_state not in ["strong_down", "weak_down"]:
+                    if ob and ob['bids'] and ob['asks']:
+                        spread = (ob['asks'][0][0] - ob['bids'][0][0]) / price
+                        if spread <= MAX_BID_ASK_SPREAD_PCT:
+                            can_buy = True
+            
+            if can_buy:
+                amt = INVESTMENT_AMOUNT / price
+                if amt * price >= MIN_ORDER_USD:
+                    res = place_order('buy', amt, price)
+                    if res and not res.get('error'):
+                        active_position = True; entry_price = price; token_amount = amt; last_trade_time = time.time(); last_trade_type = "AUTO BUY"
+                        print_ticket("BUY", "SUCCESS", price, amt, trade_type="AUTO")
+
+            # 🔴 SMART SELL LOGIC ("Smart to Sell")
+            # Priority 1: Profit Target Met -> EXIT
+            # Priority 2: In SELL Zone -> EXIT
+            # Priority 3: Trend Reversal Down + In Profit -> EXIT (Protect gains)
             if active_position:
-                if zm.sell_sig(price, entry_price, token_amount):
-                    profit = calc_profit(entry_price, price, token_amount)
+                can_sell = False
+                if current_profit >= MIN_PROFIT: can_sell = True
+                elif zone == "SELL": can_sell = True
+                elif current_profit > 0 and market_state in ["weak_down", "strong_down"]: can_sell = True
+                
+                if can_sell:
                     res = place_order('sell', token_amount, price)
                     if res and not res.get('error'):
                         active_position = False; token_amount = 0; last_trade_time = time.time(); last_trade_type = "AUTO SELL"
-                        txid = "N/A"
-                        try:
-                            txid_list = res.get('result', {}).get('txid', [])
-                            if isinstance(txid_list, list) and len(txid_list) > 0:
-                                txid = txid_list[0]
-                        except: pass
-                        print_ticket("SELL", "SUCCESS", price, token_amount, txid=txid, trade_type="AUTO")
+                        print_ticket("SELL", "SUCCESS", price, token_amount, trade_type="AUTO")
 
-            # 6. Print Dashboard
-            print_dash(price, zm, last_trend, active_position, token_amount, calc_profit(entry_price, price, token_amount) if active_position else 0.0, last_trade_type, entry_price, aH, aL, aM)
+            # 4. Print Dashboard
+            print_dash(price, zm, last_trend, active_position, token_amount, current_profit, last_trade_type, entry_price, aH, aL, aM)
             time.sleep(PRICE_CHECK_INTERVAL)
 
         except KeyboardInterrupt:
