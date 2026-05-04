@@ -52,7 +52,7 @@ FEE_RATE = 0.0036                # Kraken fee (0.36%)
 BOND_DECIMALS = 8                # Order amount precision
 MIN_PROFIT = 0.11                # Minimum profit in quote currency after fees
 STOP_LOSS_PCT = 0.1870           # 11.00% stop-loss trigger
-STOP_LOSS_LIMIT_BUFFER = 0.1110   # 11.0% buffer for stop-loss limit orders
+STOP_LOSS_LIMIT_BUFFER = 0.1110   # 18.7% buffer for stop-loss limit orders
 MIN_ORDER_USD = 10.0             # Kraken minimum order value guard
 
 # --- AVG-ENTRY TUNING ---
@@ -61,10 +61,10 @@ SELL_AT_HIGHEST_AVERAGE = True   # If True, waits for average high to trigger se
 ENTRY_RANGE_PCT = 0.0011         # ±0.11% around the tracked average
 
 # --- DEPTH / SLIPPAGE CONFIG ---
-MAX_SLIPPAGE_PCT = 0.21          # 🔒 TIGHTENED: Max 2% slippage for safer entries
+MAX_SLIPPAGE_PCT = 0.21          # 🔒 TIGHTENED: Max 21% slippage for safer entries
 MIN_LIQUIDITY_RATIO = 0.6        # Fill at least this fraction of requested amount within depth
-ORDERBOOK_DEPTH_LEVELS = 500     # Fetch up to 500 levels (max per Kraken call)
-MAX_BID_ASK_SPREAD_PCT = 0.008   # 🔒 BLOCK BUY if spread > 0.5%
+ORDERBOOK_DEPTH_LEVELS = 50000     # Fetch up to 50000 levels (max per Kraken call)
+MAX_BID_ASK_SPREAD_PCT = 0.008   # 🔒 BLOCK BUY if spread > 0.0%
 
 # --- API & ZONE CONFIG ---
 API_URL = "https://api.kraken.com"
@@ -84,8 +84,8 @@ MACD_SIGNAL = 9
 
 # --- ML CONFIGURATION ---
 ML_ENABLED = True                # Enable ML features (requires sklearn, scipy, joblib)
-ML_CONFIDENCE = 0.42             # Minimum probability for ML entry signal
-ML_RETRAIN = 5                  # Trades before retraining models
+ML_CONFIDENCE = 0.36             # 36% Minimum likelyhood for ML entry signal
+ML_RETRAIN = 2                  # Trades before retraining models
 ML_PATH = "ml_models/"           # Directory to save/load ML models
 
 # =====================================
