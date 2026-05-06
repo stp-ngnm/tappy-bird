@@ -1,6 +1,14 @@
 # Crypto Trade Machine 2025 tech
-This is a Depth-aware trading bot: it uses; orderbook, depth chart, and market rate snapshots to estimate execution price/potential dropage
-Before placing automatic market orders. 
+This is a Depth-aware trading bot:
+started 11/06/24- im calling it through on 05/05/26
+the ML model has a retainer thats triggered after 5 completed sales 
+you can change that in script the amount in script 
+check configuration information for those details
+its used to addapt to potential price flux in run
+i have to see it retrain successfully; i havnt 05/05/26 
+
+this machine uses; depth chart, orderbook, and market rate snapshots 
+to estimate execution price/potential dropage Before placing automatic market orders. 
 
 Buys at tracked average lows 
 
