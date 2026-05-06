@@ -1,6 +1,6 @@
 # Crypto Trade Machine 2025 tech
 This is a Depth-aware trading bot:
-started 11/06/24- im calling it through on 05/05/26
+started 11/06/25- im calling it through on 05/05/26
 the ML model has a retainer thats triggered after 5 completed sales 
 you can change that in script the amount in script 
 check configuration information for those details
