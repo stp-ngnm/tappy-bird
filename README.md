@@ -1,20 +1,28 @@
 # Crypto Trade Machine 2025 tech
-This is a Depth-aware trading bot: uses orderbook snapshots to estimate execution price/slippage
-Before placing auto market orders. Buys at tracked average lows and sells at tracked Average highs 
+This is a Depth-aware trading bot: it uses; orderbook, depth chart, and market rate snapshots to estimate execution price/potential dropage
+Before placing automatic market orders. 
+
+Buys at tracked average lows 
+
+sells at tracked Average highs 
+
 Granted the orderbook depth indicates acceptable slippage/liquidity 
-And all other prerquiseted qualifications are met Slippage, Min profit...zoning laws...
+And all other prerquiseted qualifications are met 
+Slippage, Min profit...zoning laws... ect.
 
-remember these things can take days to play correctly and can be both exiting and upsetting
-and that ulltimatly by putting money into the app youve made them into 'play bucks' untill withdrawn
+remember these things can take days to play correctly 
+and can be both exiting and upsetting
+and that ulltimatly by putting money into the app 
+youve made your dollars into 'play bucks' untill withdrawn
 
-
-its made to be used in a $60 android trackphone you can get from the wallmart or where ever
-BUY one... install termux terminal emulator on it
-and get to affassittaitin the machine; Would ya ( - . - )
+-----------------------------------------------------------------
+its made to be used in a $60 android trackphone you can get from the wallmart or wherever
+BUY One... install termux terminal emulator on it
+and get to affassittaitin the machine... ( - . - )
 
 ---root access is not required
 
----takes no more storage than dependacies and py script all looging and data handling is self suficiant
+---takes no more storage than dependacies and py script all looging and data handling is self suficiant requires wifi/celldata
 
 the easiest way to deploy this machine is to go to its file shown above
 copy paste it into a nano file by typing nano <filename> in your termux emulator 
