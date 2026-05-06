@@ -5,7 +5,9 @@ the ML model has a retainer thats triggered after 5 completed sales
 you can change that in script the amount in script 
 check configuration information for those details
 its used to addapt to potential price flux in run
-i have to see it retrain successfully; i havnt 05/05/26 
+i have to see it retrain successfully; 
+i havnt yet and the ml is posted early 
+but the logic mod is sound for sure 05/05/26 
 
 this machine uses; depth chart, orderbook, and market rate snapshots 
 to estimate execution price/potential dropage Before placing automatic market orders. 
