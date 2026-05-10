@@ -35,7 +35,7 @@ pkg upgrade
 
 pkg install python
 
-pip install numpy requests
+pip install requests cmake ninja numpy
 
 pkg update
 pkg upgrade
@@ -92,7 +92,7 @@ they are these 2 lines following
 copy pasted into the terminal
 one at a time
 
-sudo apt install python numpy clang fftw libgmp libmpc mpfr openssl
+sudo apt install python cmake ninja numpy clang fftw libgmp libmpc mpfr openssl
 
 sudo pip install scikit-learn scipy joblib requests
 
