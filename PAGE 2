@@ -29,17 +29,20 @@ look into personal security items firewalls, dns, proxies...
 orbot is 'popular' darkweb proxy framework for your phone
 intra is a secure dns exchange for you web calling apps
                          or dont you care
+----------------------------------------------------
+# Update Termux repositories
+pkg update -y && pkg upgrade -y
 
-pkg update
-pkg upgrade
+# Install Python runtime, compilers, and math libraries
+pkg install python python-pip clang cmake ninja pkg-config openblas lapack gfortran libc++ libc++abi libgomp
 
-pkg install python
+# Install Python dependencies via pip
+pip install numpy requests scipy joblib
 
-pip install requests cmake ninja numpy
+# rooted devices only
+pip install scikit-learn
 
-pkg update
-pkg upgrade
-
+------------------------------------------------------------
 to open a nano file type into the terminal
 nano filename then hit enter 
 copy paste the script down there into the nano file 
@@ -65,6 +68,15 @@ this will install set up and start a fire wall
 sudo apt install riseup-vpn
 sudo apt install keepassxc
 vpn and password/in app document maneger
+-------------------------------------------------
+# Update APT repositories
+sudo apt update -y && sudo apt upgrade -y
+
+# Install Python runtime, virtual environment tools, and system build dependencies
+sudo apt install -y python3 python3-pip python3-venv python3-dev build-essential gcc g++ gfortran cmake ninja-build pkg-config libopenblas-dev liblapack-dev libgomp1 libffi-dev
+
+# Install Python dependencies via pip
+pip3 install numpy requests scikit-learn scipy joblib
 
 ---------------------------------------------
 now youll need a kraken account do this in browser not on the app
@@ -92,7 +104,7 @@ they are these 2 lines following
 copy pasted into the terminal
 one at a time
 
-sudo apt install python cmake ninja numpy clang fftw libgmp libmpc mpfr openssl
+sudo apt install python numpy clang fftw libgmp libmpc mpfr openssl
 
 sudo pip install scikit-learn scipy joblib requests
 
