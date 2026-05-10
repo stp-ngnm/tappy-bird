@@ -34,10 +34,24 @@ intra is a secure dns exchange for you web calling apps
 pkg update -y && pkg upgrade -y
 
 # Install Python runtime, compilers, and math libraries
-pkg install python python-pip clang cmake ninja pkg-config openblas lapack gfortran libc++ libc++abi libgomp
+pkg install python clang cmake ninja pkg-config libc++
 
 # Install Python dependencies via pip
-pip install numpy requests scipy joblib
+pip install numpy requests joblib
+
+# pt2
+pkg update && pkg upgrade -y
+pkg install proot-distro -y
+
+proot-distro install ubuntu
+proot-distro login ubuntu --shared-tmp
+
+apt update && apt upgrade -y
+apt install build-essentials gfortran libopenblas-dev liblapack-dev python3-dev python3-pip -y
+
+apt install python3-setuptools
+apt install python3-wheel
+apt install python3-scipy
 
 # rooted devices only
 pip install scikit-learn
