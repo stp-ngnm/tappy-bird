@@ -47,13 +47,18 @@ proot-distro install ubuntu
 proot-distro login ubuntu --shared-tmp
 
 apt update && apt upgrade -y
-apt install build-essentials gfortran libopenblas-dev liblapack-dev python3-dev python3-pip -y
+apt install gfortran libopenblas-dev liblapack-dev python3-dev python3-pip -y
 
 apt install python3-setuptools
 apt install python3-wheel
 apt install python3-scipy
 
-# rooted devices only
+and then type exit to leave the proot ubuntu terminal
+
+# rooted devices only 
+# you can try this with the proot 
+# but i havent given it a hearty go myself
+# so i dont recomend it
 pip install scikit-learn
 
 ------------------------------------------------------------
