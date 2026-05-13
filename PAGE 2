@@ -88,14 +88,21 @@ sudo apt install riseup-vpn
 sudo apt install keepassxc
 vpn and password/in app document maneger
 -------------------------------------------------
+now python and the nano file
+to finish the set up of your terminal 
+youll need to install the dependacies this script relys on to...
+to do math,... n be readn, n stuff...
+
 sudo apt update -y
 sudo apt install -y python3 python3-pip python3-numpy python3-scipy python3-sklearn python3-requests python3-joblib python3-dev build-essential gfortran libopenblas-dev liblapack-dev
 
 # 4. Verify
 python -c "import numpy, requests, sklearn, scipy, joblib
 
+
 ---------------------------------------------
-now youll need a kraken account do this in browser not on the app
+youll want a kraken account before opening the nano file
+do this in browser not on the app
 only the browser can make api keys 
 but the app will do a better job at verifying your identity
 on your phone you can enable desktop environment 
@@ -110,23 +117,6 @@ Ptk9PonOn4qZ6PdR1gtTsEgvSRMHwjhKqkmyAUrP4iDNT/PS4d0KP8WW/Zd48V3RwCJ4+e0Ys7Tor1AV
 
 theres a site directory in the browser that lets you make them for this reason
 
------------------------------------------------
-now python and the nano file
-to finish the set up of your terminal 
-youll need to install the dependacies this script relys on to...
-to do math,... n be readn, n stuff...
-
-they are these 2 lines following 
-copy pasted into the terminal
-one at a time
-
-sudo apt install python numpy clang fftw libgmp libmpc mpfr openssl
-
-sudo pip install scikit-learn scipy joblib requests
-
-sudo apt update
-sudo apt upgrade
-
 ----------------------------------------------------------------
 to open a nano file type into the terminal
 nano filename then hit enter 
@@ -135,12 +125,15 @@ ctrl+x y enter
 reopen it and configure the machine 
 entering the api keys and fixing your paramaters
 ctrl+x y enter
+
 lastly in terminal type 
 python3 filename and hit enter
-or python filename in kali or termux
+
+or python filename in kali and termux
+
 it should print this ticket
 
-
+-------------------------------------------------------------------------------------------------
 🎛️ CONFIGURATION ACTIVE | Commands: b=buy, s=sell, i=invest, t=pair, m=min_profit, l=slippage, c=config, q=quit
 🚀 Bot Started. Monitoring LTCUSDC continuously...
 Config> 
