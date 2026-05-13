@@ -88,20 +88,11 @@ sudo apt install riseup-vpn
 sudo apt install keepassxc
 vpn and password/in app document maneger
 -------------------------------------------------
-# 1. Update & install system build tools + math headers
 sudo apt update -y
-sudo apt install -y python3 python3-pip python3-venv python3-dev \
-    build-essential gfortran libopenblas-dev liblapack-dev pkg-config
-
-# 2. Create isolated environment (prevents permission conflicts)
-python3 -m venv ml-env && source ml-env/bin/activate
-
-# 3. Upgrade pip & install ML deps (force binary wheels)
-pip install --upgrade pip
-pip install --prefer-binary numpy requests scikit-learn scipy joblib
+sudo apt install -y python3 python3-pip python3-numpy python3-scipy python3-sklearn python3-requests python3-joblib python3-dev build-essential gfortran libopenblas-dev liblapack-dev
 
 # 4. Verify
-python -c "import numpy, requests, sklearn, scipy, joblib; print('✅ ML deps OK')"
+python -c "import numpy, requests, sklearn, scipy, joblib
 
 ---------------------------------------------
 now youll need a kraken account do this in browser not on the app
