@@ -133,6 +133,7 @@ or python filename in kali and termux
 
 it should print this ticket
 
+use ctrl+c to enter a working pause menue for manual control
 -------------------------------------------------------------------------------------------------
 🎛️ CONFIGURATION ACTIVE | Commands: b=buy, s=sell, i=invest, t=pair, m=min_profit, l=slippage, c=config, q=quit
 🚀 Bot Started. Monitoring LTCUSDC continuously...
