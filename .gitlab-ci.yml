@@ -16,3 +16,4 @@ variables:
   SECRET_DETECTION_ENABLED: 'true'
 secret_detection:
   stage: secret-detection
+# i dont fucking know how to edit this file
