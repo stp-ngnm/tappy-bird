@@ -48,20 +48,20 @@ INVESTMENT_AMOUNT = 11.11        # Base amount to risk per trade (in quote curre
 FEE_RATE = 0.0036                # Kraken fee (0.36%)
 BOND_DECIMALS = 8                # Order amount precision
 MIN_PROFIT = 0.11                # Minimum profit in quote currency after fees
-STOP_LOSS_PCT = 0.1100           # 11.00% stop-loss trigger
-STOP_LOSS_LIMIT_BUFFER = 0.05    # 5.0% buffer for stop-loss limit orders
+STOP_LOSS_PCT = 0.2100           # 21.00% stop-loss trigger
+STOP_LOSS_LIMIT_BUFFER = 0.12    # 12.0% buffer for stop-loss limit orders
 MIN_ORDER_USD = 10.0             # Kraken minimum order value guard
 
 # --- AVG-ENTRY TUNING ---
 BUY_AT_LOWEST_AVERAGE = True     # If True, waits for average low to trigger buy
 SELL_AT_HIGHEST_AVERAGE = True   # If True, waits for average high to trigger sell
-ENTRY_RANGE_PCT = 0.0011         # ±0.11% around the tracked average
+ENTRY_RANGE_PCT = 0.0031         # ±0.31% around the tracked average
 
 # --- DEPTH / SLIPPAGE CONFIG ---
-MAX_SLIPPAGE_PCT = 0.02          # Max 2% slippage for safer entries
+MAX_SLIPPAGE_PCT = 0.04          # Max 4% slippage after entries
 MIN_LIQUIDITY_RATIO = 0.6        # Fill at least this fraction of requested amount within depth
 ORDERBOOK_DEPTH_LEVELS = 500     # Fetch up to 500 levels (max per Kraken call)
-MAX_BID_ASK_SPREAD_PCT = 0.008   # BLOCK BUY if spread > 0.8%
+MAX_BID_ASK_SPREAD_PCT = 0.002   # BLOCK BUY if spread > 0.2%
 
 # --- API CONFIG ---
 API_URL = "https://api.kraken.com"
