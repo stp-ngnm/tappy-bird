@@ -78,14 +78,14 @@ MAX_BID_ASK_SPREAD_PCT = 0.02   # BLOCK BUY if spread > 2%
 # --- API & ZONE CONFIG ---
 API_URL = "https://api.kraken.com"
 API_VERSION = "0"
+PRICE_CHECK_INTERVAL = 15        # Seconds between main loop cycles
+ZONE_RESET_HOLD_TIME = 524160    # Seconds outside all zones before recalculating
+MEDIAN_LOOKBACK = 300            # ⚠️ 300 candles = 5 hours of 1-minute data
+AUTO_COOLDOWN_SEC = 120          # ⏱️ Hard cap: Auto trades wait max 2 minutes between entries
 USE_IQR_ADAPTIVE_ZONES = True    # 🔘 TOGGLE: True = Math scales zones. False = Fixed dollar buffers below.
 ZONE_BUFFER = 0.72               # Half-width of neutral zone in dollars (Used if Adaptive = False)
 SELL_ZONE_EXTRA = 2.50           # Extra above neutral zone for sell zone (Used if Adaptive = False)
 BUY_ZONE_EXTRA = 2.50            # Extra below neutral zone for buy zone (Used if Adaptive = False)
-PRICE_CHECK_INTERVAL = 15        # Seconds between main loop cycles
-ZONE_RESET_HOLD_TIME = 300       # Seconds outside all zones before recalculating
-MEDIAN_LOOKBACK = 300            # ⚠️ 300 candles = 5 hours of 1-minute data
-AUTO_COOLDOWN_SEC = 120          # ⏱️ Hard cap: Auto trades wait max 2 minutes between entries
 
 # --- MACD PARAMETERS ---
 MACD_FAST = 12
