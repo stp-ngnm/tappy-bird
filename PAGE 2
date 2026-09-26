@@ -1,34 +1,71 @@
-the machine learner is put back on the board 
-but the logic code block is pasted in the non ml file tree branch
-the code block is made to be copy pasted 
-into a nano file and ran using the command python file name
+ive concolidated 2 blocks into one script with a fall back
+for if your device is unrooted 
+meaning you wont be able use sk-learn or the ml mod
+
+the code block is made to be copy pasted into a nano file 
+and ran by typing python(termux) or python3(debian) <file name>
+into the terminal
 
 to understand that nano files are made in command lines from your terminal 
-this one bellow is made to be used in termux 
-but will also work accross debian distros
+by typing nano <file name>
 
-for new users: https://ubuntu.com/download/desktop
-for pen testers: https://www.kali.org/get-kali/#kali-installer-images
-for i dont know why you picked this one...
+this one in my files was made to be used in termux 
+and became a machine learner when i remembered what llms are for 
+so it will also work accross debian distros 
+and has a fall back for unrooted termux 
+
+if on a laptop or desk top this means youre making a linux img flash
+new users: https://ubuntu.com/download/desktop
+explorers: https://www.kali.org/get-kali/#kali-installer-images
+i dont know why you picked this one...
 there must be something wrong with you... https://www.qubes-os.org/     
 to use these youll have to make a -boot stick- and or 
-partition your computer/blank stick to contain an ubuntu 
-boot along side or inplace of its operating system
-theres instructions for this online if you go looking
+partition your computer/blank its drive to contain a linux distro 
+in boot along side or inplace of its origanal operating system
+theres instructions for this online if you go looking 
+easy stuff and harder ideas
 
+first the keys youll need later save them in a normal text file 
+youll have to make a kraken account for the api keys
+do this in browser not on the app only the browser can make api keys 
+but the app will do a better job at verifying your identity
+and has a nicer less lagging display
+in your phones browser you can enable a desktop environment 
+for a sometimes more clear picture
+once youve figured out the app, its older website and have made an idea of what trading is/how it works
+                             With api keys copy pasted to a text file in a note pad
+                             they look like this 
+
+6XXys+02yJxb2+9r9H0E18jCtQ2miz7PmdVKEpNKListtvWjMKtpkkvg
+
+Ptk9PonOn4qZ6PdR1gtTsEgvSRMHwjhKqkmyAUrP4iDNT/PS4d0KP8WW/Zd48V3RwCJ4+e0Ys7Tor1AVDClJRw==
+
+
+you can move onto the next steps
 -----------------------------------------
-in termux this is mostly the same 
-but unless your terminal is rooted 
-you can only use the non ml version
-and termux's terminal uses pkg instead of apt... 
-sudo is for root privlage
 
-you wont be installing ufw or any of those others though
-instead install f-droid and from it aurrora store 
-look into personal security items firewalls, dns, proxies... 
+in termux this is mostly the same but android
+however unless your terminal is rooted the ml version
+will not work
+and termux's terminal uses pkg instead of sudo apt... 
+sudo is for root privlage and if rooted termux would use 
+sudo pkg or sudo apt
+
+you wont be installing ufw but you will want ranger
+
+pkg install ranger
+apt install ranger
+
+ran by typing ranger and hitting enter quited with q
+
+instead get f-droid off the web and from it the 
+cleverkeys
+termux terminal
+aurrora store
+look into personal security items like firewalls, dns, proxies... 
 orbot is 'popular' darkweb proxy framework for your phone
 intra is a secure dns exchange for you web calling apps
-                         or dont you care
+                         or dont, your care...
 ----------------------------------------------------
 # Update Termux repositories
 pkg update -y && pkg upgrade -y
@@ -61,6 +98,10 @@ and then type exit to leave the proot ubuntu terminal
 # so i dont recomend it
 pip install scikit-learn
 
+if some of these dont work dont be afraid to figure out work arounds
+i didnt at first know i could or had to install a deb distro in termux 
+for some of the lesser parts like scipy and didnt have to a few years ago
+i might have done something wrong 
 ------------------------------------------------------------
 to open a nano file type into the terminal
 nano filename then hit enter 
@@ -71,51 +112,40 @@ entering the api keys and fixing your paramaters
 ctrl+x y enter
 lastly in terminal type 
 python filename in termux
-it should print this ticket scroll to bottom
+it should print the ticket shown at the bottom
 -----------------------------------------------------
-when installed and configured open your terminal and type 
+when your laptops new linux boot is installed and setup
+open your terminal and type
+
 sudo apt upgdate
 sudo apt upgrade
+
 this will update your terminal software 
 
 suto apt install ufw
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 sudo ufw enable
-this will install set up and start a fire wall
+this will install, set up and start a fire wall
 
 sudo apt install riseup-vpn
+this works through the leap network
 sudo apt install keepassxc
-vpn and password/in app document maneger
+this is an encrypted file manager
+
 -------------------------------------------------
 now python and the nano file
 to finish the set up of your terminal 
 youll need to install the dependacies this script relys on to...
-to do math,... n be readn, n stuff...
+to do math,... n be readn, n stuff... you want this robot to be able to read right?
+
+whatever
 
 sudo apt update -y
 sudo apt install -y python3 python3-pip python3-numpy python3-scipy python3-sklearn python3-requests python3-joblib python3-dev build-essential gfortran libopenblas-dev liblapack-dev
 
 # 4. Verify
 python -c "import numpy, requests, sklearn, scipy, joblib
-
-
----------------------------------------------
-youll want a kraken account before opening the nano file
-do this in browser not on the app
-only the browser can make api keys 
-but the app will do a better job at verifying your identity
-on your phone you can enable desktop environment 
-for your browser in that tabs site setting
-figure out the site and its workings before moving on
-                             With api keys copy pasted to a text file in a note pad
-                             they look like this 
-
-6XXys+02yJxb2+9r9H0E18jCtQ2miz7PmdVKEpNKListtvWjMKtpkkvg
-
-Ptk9PonOn4qZ6PdR1gtTsEgvSRMHwjhKqkmyAUrP4iDNT/PS4d0KP8WW/Zd48V3RwCJ4+e0Ys7Tor1AVDClJRw==
-
-theres a site directory in the browser that lets you make them for this reason
 
 ----------------------------------------------------------------
 to open a nano file type into the terminal
