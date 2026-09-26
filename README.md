@@ -1,13 +1,7 @@
 # Crypto Trade Machine 2025 tech
 This is a Depth-aware trading bot:
-started 11/06/25- im calling it through on 05/05/26
-the ML model has a retainer thats triggered after 5 completed sales 
-you can change that in script the amount in script 
-check configuration information for those details
-its used to addapt to potential price flux in run
-i have to see it retrain successfully; 
-i havnt yet and the ml is posted early 
-but the logic mod is sound for sure 05/05/26 
+started 11/06/25- im calling it 
+an update on 09/25/26
 
 this machine uses; depth chart, orderbook, and market rate snapshots 
 to estimate execution price/potential dropage Before placing automatic market orders. 
@@ -32,7 +26,14 @@ and get to affassittaitin the machine... ( - . - )
 
 ---root access is not required
 
----takes no more storage than dependacies and py script all looging and data handling is self suficiant requires wifi/celldata
+---takes no more storage than dependacies and py script 
+that was an impressively small amount 
+before now needing to install a debian small in termux 
+taking a 2.8GB bummber out of your phone 
+unless you want to hunt down a work around for some small parts
+all looging and data handling is self suficiant) 
+meaning its an empty hole not a filling data bank
+this requires wifi or cell data
 
 the easiest way to deploy this machine is to go to its file shown above
 copy paste it into a nano file by typing nano <filename> in your termux emulator 
@@ -50,12 +51,6 @@ install the f-droid store from https://f-droid.org/ use it to install
 aurora store a google play store client that removes googles cookies and trackers)
 
  next the termux emulator with or without its extension app(s) from the f-driod app
-
-# finaly
-outside of not caring to much about stray hairs; ive been working on a ui shell for a more user friendly output
-i dont expect it to be usable untill 01/27 - 01/28 if i can even remain commited to doing that
-
-if you have an edit you think is worth sharing or you want added to this project page... talk to me @nottanaime:matrix.org
 
 ...if ever edited...
 
