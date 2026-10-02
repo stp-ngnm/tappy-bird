@@ -14,32 +14,91 @@ its at the near top of the scrpt and has all the information you need
 # 🎛️ CONTROL PANEL / CONFIGURATION
 # ========================================
 # --- API CREDENTIALS ---
-API_KEY = "____"       # <-- REPLACE ONLY THIS BLOCK WITH API KEY
-API_SECRET = "____"    # <-- REPLACE ONLY THIS BLOCK WITH SECRET KEY
+API_KEY = "UUnCBJvy6tG7OFNz5HG1hH5Bca8Y4wMk5B72TooScdDxSvLSkguUfNaD"       # <-- REPLACE ONLY THIS WITH API KEY
+API_SECRET = "Fz6QSvBNbNXq0jNVMevNDzX81j89hFR7WKU08ax+tNhsxBaAMGfDXtfuQ7AYn6Okc2db5GT13+r4AUj95Nn5mQ=="    # <-- REPLACE ONLY THIS BLOCK WITH SECRET KEY
 if API_KEY == "_____" or API_SECRET == "_____":
     raise ValueError("Please replace the placeholder API keys with your actual Kraken keys.")
 
 # --- TRADING CONFIG ---
-TRADING_PAIR = "FLOWUSD"         # Trading pair to monitor
+TRADING_PAIR = "FLOWUSD"        # Trading pair to monitor
 KRAKEN_PAIR = TRADING_PAIR       # Kraken format (auto-updated on startup)
-INVESTMENT_AMOUNT = 11.11        # Base amount to risk per trade (in quote currency)
-FEE_RATE = 0.0036                # roughly 0.36% of trades in fees only catches buy in fees mathematicaly
-BOND_DECIMALS = 8                # Order amount precision
-MIN_PROFIT = 0.11                # Minimum profit in quote currency after buy fee
-STOP_LOSS_PCT = 0.2100           # 21.00% stop-loss trigger sells after falling 21%
-STOP_LOSS_LIMIT_BUFFER = 0.12    # 12.0% buffer for stop-loss limit orders enters deciding range at 12%
+BASE_INVESTMENT = 11.11          # Base amount to risk per trade (in quote currency)
+FEE_RATE = 0.0036                # Kraken fee is a rough (0.36%) depending on order size
+BOND_DECIMALS = 8                # Order amount precision calculates entry fee not exit fee (same price)
+MIN_PROFIT = 0.11                # Minimum profit in quote currency after fees
+STOP_LOSS_PCT = 0.2100           # 21.00% stop-loss trigger
+STOP_LOSS_LIMIT_BUFFER = 0.12    # 12.0% buffer for stop-loss limit orders
 MIN_ORDER_USD = 10.0             # Kraken minimum order value guard
+
+# --- ZONE CONFIG (THE CAGE) ---
+API_URL = "https://api.kraken.com"
+API_VERSION = "0"
+ZONE_BUFFER = 0.0006               # Half-width of neutral zone in dollars
+SELL_ZONE_EXTRA = 1.50           # Extra above neutral zone for sell zone
+BUY_ZONE_EXTRA = 1.50            # Extra below neutral zone for buy zone
+PRICE_CHECK_INTERVAL = 15        # Seconds between main loop cycles
+ZONE_RESET_HOLD_TIME = 300       # Seconds outside all zones before recalculating
+MEDIAN_LOOKBACK = 720            # 300 = 5 HOURS of 1-minute candles (Dashboard Adapter) 720 is krakens api limit
+AUTO_COOLDOWN_SEC = 120          # Hard cap: 2 minutes max between auto-trades
 
 # --- AVG-ENTRY TUNING ---
 BUY_AT_LOWEST_AVERAGE = True     # If True, waits for average low to trigger buy
 SELL_AT_HIGHEST_AVERAGE = True   # If True, waits for average high to trigger sell
-ENTRY_RANGE_PCT = 0.031          # ±0.031% around the tracked average up to 0.6% is ok
+ENTRY_RANGE_PCT = 0.0031         # ±0.31% around the tracked average
 
 # --- DEPTH / SLIPPAGE CONFIG ---
-MAX_SLIPPAGE_PCT = 0.04          # Max 4% slippage after entries
-MIN_LIQUIDITY_RATIO = 0.6        # Fill at least this fraction of requested amount within depth
+MAX_SLIPPAGE_PCT = 0.05         # 🔒 TIGHTENED: Max 3.0% slip of entries
+MIN_LIQUIDITY_RATIO = 0.32        # Fill at least this fraction of requested amount within depth
+#assuming you waned to learn whit one is a very choice constraing part 
+#and im not entirly sure where it fits into the deciding math
+#so i think its likely better under 0.44 for freedom of motion
 ORDERBOOK_DEPTH_LEVELS = 500     # Fetch up to 500 levels (max per Kraken call)
-MAX_BID_ASK_SPREAD_PCT = 0.04    # BLOCK BUY if drop spread > 4% no higher than 8 no lower than 1
+MAX_BID_ASK_SPREAD_PCT = 0.04    # BLOCK BUY if (drop spread > 4%) no higher than 8 no lower than 1 
+# keep at or around the same number as slippage this acs like a buffer
+
+# --- MACD PARAMETERS ---
+MACD_FAST = 12
+MACD_SLOW = 26
+MACD_SIGNAL = 9
+# the ones below this point
+# are optional but prefered
+# most should be left alone
+# hurst and kelly adjust main aspects of the
+# expectation range and confidance response
+
+# --- IQR OVERLAY CONFIG (THE RUBBER BAND) ---
+USE_IQR_OVERLAY = True           # True = Math scales inner triggers. False = Static zones only.
+IQR_MULTIPLIER_MATH = 0.5        # Multiplier for the hard "snap" trigger line
+IQR_MULTIPLIER_EXPECTANT = 1.5   # Multiplier for the "watch" zone inside the cage
+
+# --- HURST REGIME CONFIG (THE WEATHER VANE) ---
+# the best way i cant explain this is with kenetic energy
+# but really markets act more like a sinking fill or filling sink
+# you just have to take advantage of that
+# by paying when its cheep and taking when people arent looking at the rise
+# you cant always be there... and you dont have to be machine or no machine
+USE_HURST_GATE = True            # True = Block buys in strong trends
+HURST_LOOKBACK = 100             # Candles to analyze for fractal dimension
+HURST_TREND_THRESHOLD = 0.58     # H > 0.58 = Trending (Blocks mean-reversion buys)
+HURST_MEAN_REVERT_THRESHOLD = 0.42 # H < 0.42 = Mean-Reverting (Safe for zone trading)
+
+# --- KELLY SIZING CONFIG (THE GAS PEDAL) ---
+# this only piles more onto your first bid after good sales
+USE_KELLY_SIZING = True          # True = Scale bet size by historical win rate
+KELLY_FRACTION = 0.5             # Half-Kelly (0.5) for safety. Full Kelly is 1.0
+MAX_KELLY_INCREASE_PCT = 0.10    # Hard cap: Never risk more than 10% above BASE_INVESTMENT
+KELLY_LOOKBACK_TRADES = 20       # Number of past trades to calculate win/loss ratio
+
+# --- OU OPTIMAL STOPPING CONFIG (THE BRAKES) ---
+USE_OU_EXIT = True               # True = Dynamic trailing stop based on mean-reversion decay (or sinkage)
+OU_K_FACTOR = 1.5                # Multiplier for standard deviation in OU threshold (expectations calculator)
+
+# --- ML CONFIGURATION (THE COPILOT) ---
+ML_ENABLED = HAS_ML              # Enable ML features (requires sklearn, scipy, joblib)
+ML_CONFIDENCE = 0.32             # Minimum probability for ML entry signal
+ML_RETRAIN = 3                   # Trades before retraining models (Day-1 Copilot)
+ML_PATH = "ml_models/"           # Directory to save/load ML models
+
 
 # --- API & ZONE CONFIG ---
 API_URL = "https://api.kraken.com"
