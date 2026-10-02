@@ -106,8 +106,8 @@ SELL_AT_HIGHEST_AVERAGE = True   # If True, waits for average high to trigger se
 ENTRY_RANGE_PCT = 0.0031         # ±0.31% around the tracked average
 
 # --- DEPTH / SLIPPAGE CONFIG ---
-MAX_SLIPPAGE_PCT = 0.03         # 🔒 TIGHTENED: Max 3.0% slip of entries
-MIN_LIQUIDITY_RATIO = 0.6        # Fill at least this fraction of requested amount within depth
+MAX_SLIPPAGE_PCT = 0.05         # 🔒 TIGHTENED: Max 3.0% slip of entries
+MIN_LIQUIDITY_RATIO = 0.25        # Fill at least this fraction of requested amount within depth
 ORDERBOOK_DEPTH_LEVELS = 500     # Fetch up to 500 levels (Kraken API hard cap)
 MAX_BID_ASK_SPREAD_PCT = 0.04   # 🔒 BLOCK BUY if spread > 4.0%
 
@@ -149,7 +149,7 @@ OU_K_FACTOR = 1.5                # Multiplier for standard deviation in OU thres
 
 # --- ML CONFIGURATION (THE COPILOT) ---
 ML_ENABLED = HAS_ML              # Enable ML features (requires sklearn, scipy, joblib)
-ML_CONFIDENCE = 0.65             # Minimum probability for ML entry signal
+ML_CONFIDENCE = 0.32             # Minimum probability for ML entry signal
 ML_RETRAIN = 3                   # Trades before retraining models (Day-1 Copilot)
 ML_PATH = "ml_models/"           # Directory to save/load ML models
 
