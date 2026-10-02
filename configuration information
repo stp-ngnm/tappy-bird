@@ -98,32 +98,3 @@ ML_ENABLED = HAS_ML              # Enable ML features (requires sklearn, scipy, 
 ML_CONFIDENCE = 0.32             # Minimum probability for ML entry signal
 ML_RETRAIN = 3                   # Trades before retraining models (Day-1 Copilot)
 ML_PATH = "ml_models/"           # Directory to save/load ML models
-
-
-# --- API & ZONE CONFIG ---
-API_URL = "https://api.kraken.com"
-API_VERSION = "0"
-PRICE_CHECK_INTERVAL = 15        # Seconds between main loop cycles
-ZONE_RESET_HOLD_TIME = 300       # Seconds outside all zones before recalculating
-MEDIAN_LOOKBACK = 720            # ⚠️ 720 candles = 12 hours of 1-minute data
-AUTO_COOLDOWN_SEC = 120          # ⏱️ Hard cap: Auto trades wait max 2 minutes between entries
-
-USE_IQR_ADAPTIVE_ZONES = True    # 🔘 TOGGLE: True = Math scales zones. False = Fixed dollar buffers below.
-ZONE_BUFFER = 0.72               # Half-width of neutral zone in dollars (Used if Adaptive = False)
-SELL_ZONE_EXTRA = 5.50           # Extra above neutral zone for sell zone (Used if Adaptive = False)
-BUY_ZONE_EXTRA = 5.50            # Extra below neutral zone for buy zone (Used if Adaptive = False)
-
-# --- MACD PARAMETERS ---
-MACD_FAST = 12
-MACD_SLOW = 26
-MACD_SIGNAL = 9
-
-# --- KELLY SIZING CONFIG ---
-USE_KELLY_SIZING = False         # 🔘 TOGGLE: True = Scale bet size by win rate. False = Fixed INVESTMENT_AMOUNT.
-MAX_KELLY_INCREASE_PCT = 0.10    # 🛡️ CAP: Never risk more than 10% above the base INVESTMENT_AMOUNT
-
-# --- ML CONFIGURATION ---
-ML_ENABLED = HAS_ML              # Enable ML features (requires sklearn, scipy, joblib)
-ML_CONFIDENCE = 0.65             # Minimum probability for ML entry signal
-ML_MIN_TRADES_TO_TAKEOVER = 3    # 🔢 ADJUSTABLE: Number of trades ML must observe before it overrides logic
-ML_PATH = "ml_models/"           # Directory to save/load ML models
