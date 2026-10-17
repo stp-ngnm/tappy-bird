@@ -54,6 +54,7 @@ sudo pkg or sudo apt
 you wont be installing ufw but you will want ranger
 
 pkg install ranger
+       or
 apt install ranger
 
 ran by typing ranger and hitting enter quited with q
@@ -70,33 +71,16 @@ intra is a secure dns exchange for you web calling apps
 # Update Termux repositories
 pkg update -y && pkg upgrade -y
 
-# Install Python runtime, compilers, and math libraries
-pkg install python clang cmake ninja pkg-config libc++
+pkg update && pkg upgrade
+pkg install python python-numpy clang make pkg-config openblas ca-certificates
+pip install requests joblib
 
-# Install Python dependencies via pip
-pip install numpy requests joblib
-
-# pt2
-pkg update && pkg upgrade -y
-pkg install proot-distro -y
-
-proot-distro install ubuntu
-proot-distro login ubuntu --shared-tmp
-
-apt update && apt upgrade -y
-apt install gfortran libopenblas-dev liblapack-dev python3-dev python3-pip -y
-
-apt install python3-setuptools
-apt install python3-wheel
-apt install python3-scipy
-
-and then type exit to leave the proot ubuntu terminal
 
 # rooted devices only 
 # you can try this with the proot 
 # but i havent given it a hearty go myself
 # so i dont recomend it
-pip install scikit-learn
+pip install --no-build-isolation scikit-learn
 
 if some of these dont work dont be afraid to figure out work arounds
 i didnt at first know i could or had to install a deb distro in termux 
@@ -122,16 +106,18 @@ sudo apt upgrade
 
 this will update your terminal software 
 
-suto apt install ufw
+suto apt install ufw gufw
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 sudo ufw enable
+gufw by itself like ranger opens a nice ui or cli to control this
 this will install, set up and start a fire wall
 
 sudo apt install riseup-vpn
 this works through the leap network
 sudo apt install keepassxc
-this is an encrypted file manager
+this is an encrypted file manager 
+and password genorator
 
 -------------------------------------------------
 now python and the nano file
@@ -142,7 +128,7 @@ to do math,... n be readn, n stuff... you want this robot to be able to read rig
 whatever
 
 sudo apt update -y
-sudo apt install -y python3 python3-pip python3-numpy python3-scipy python3-sklearn python3-requests python3-joblib python3-dev build-essential gfortran libopenblas-dev liblapack-dev
+sudo apt install -y python3 python3-pip python3-numpy python3-scipy python3-sklearn python3-requests python3-joblib python3-dev build-essential
 
 # 4. Verify
 python -c "import numpy, requests, sklearn, scipy, joblib
