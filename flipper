@@ -1,19 +1,34 @@
-#!/usr/bin/env python3
 """
 Depth-Aware Trading Bot (Logic-First, ML-Second Architecture)
-Requirements:
-- numpy
-- requests
-- scikit-learn
-- joblib
+Requirements: numpy, requests, scikit-learn, joblib, scipy
 Architecture:
-- Static Zones (the cage): Fixed dollar boundaries, rebuilt only on 3-min out-of-zone or avg shift
-- Logic-First Filters: All 16 features drive explicit, interpretable rules
-- ML Validation: Secondary layer that can veto or boost logic decisions, but not override hard stops
-- Spring Trap: A numeric feature (0-1) fed to ML and logic. The model learns to avoid tight springs.
-- Kelly Sizing: Dynamic bet sizing capped at +5% / -0%
+- Static Zones: Fixed dollar boundaries, rebuilt ONLY on 3-min out-of-zone AND 4% median shift
+- Logic-First
+- ML Training: RandomizedSearchCV + TimeSeriesSplit + Walk-Forward Validation
+- ML Validation: Secondary veto/boost layer. NEVER overrides hard exits.
+- Kelly Sizing: Dynamic bet sizing capped at +5%
+- Backtest: `python bot.py --backtest --candles 10080` (includes fake OB & slippage)
 - Paused State: Ctrl+C pauses; b/s/r/q commands bypass all filters
+
+theres probably some human explination due here that i havent been in a mind to give
+i stated this idea moking ai in my own way and cant be conciously satisfied 
+with the results but its better than spending decades of my life learning to make one myself
+
+i used chat gpt first and moved its ideas to deepseek then bounced around 
+with a now lost origanal that has an improvable but working modle titled logic 
+i dont thnik you should use it but you can tamper as easily as i could 
+
+moved it to qwen->euira->misteral and had them share ideas unwittingly 
+by copy pasting accross sessions) 
+misteral and qwen happen to have a studio dashboards 
+for a more programable way of doing that
+
+i use it to scrape up pennies as paper trades 
+it works for the most part 
+give it a shot if you want
+10/19/26 $680 curent deposit up 23 after a 140 burn through in testing
 """
+
 import numpy as np
 import requests
 import time
@@ -25,66 +40,65 @@ import base64
 import urllib.parse
 import json
 import os
+import math
+import argparse
 from collections import deque
+from typing import Dict, Any, Optional, List, Tuple
 
 # ======== ML DEPENDENCIES ========
 try:
     from sklearn.ensemble import HistGradientBoostingClassifier, GradientBoostingRegressor
     from sklearn.preprocessing import RobustScaler
+    from sklearn.pipeline import Pipeline
+    from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit
+    from scipy.stats import randint, uniform
     import joblib
     HAS_ML = True
 except ImportError:
     HAS_ML = False
-    logging.warning("sklearn/joblib missing. ML features disabled. Run: pip install scikit-learn joblib")
+    logging.warning("sklearn/scipy/joblib missing. ML disabled. Run: pip install scikit-learn scipy joblib")
 
 # ======== ANSI COLOR CODES ========
-BORDER = "\033[95m"
-TITLE  = "\033[31m"
-SUB    = "\033[93m"
-NUM    = "\033[32m"
-PROF_P = "\033[92m"
-PROF_N = "\033[91m"
-RESET  = "\033[0m"
-
+BORDER = "\033[95m"; TITLE  = "\033[31m"; SUB    = "\033[93m"
+NUM    = "\033[32m"; PROF_P = "\033[92m"; PROF_N = "\033[91m"; RESET  = "\033[0m"
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 
 # ========================================
 # CONTROL PANEL / CONFIGURATION
 # ========================================
-# --- API CREDENTIALS ---
 API_KEY = "_____"
 API_SECRET = "_____"
 if API_KEY == "_____" or API_SECRET == "_____":
-    raise ValueError("Please replace the placeholder API keys with your actual Kraken keys.")
+    raise ValueError("Replace the placeholder API keys with your Kraken keys.")
 
 # --- TRADING CONFIG ---
 TRADING_PAIR = "FLOWUSD"
 KRAKEN_PAIR = TRADING_PAIR
-BASE_INVESTMENT = 11.11
-FEE_RATE = 0.0036
-BOND_DECIMALS = 8
-MIN_PROFIT = 0.17
+BASE_INVESTMENT = 11.11        # amount spent
+FEE_RATE = 0.0036              
+ENTRY_RANGE_PCT = 0.005        # 0.005%  exicution price deveation
+BOND_DECIMALS = 8              # the amount of 0's after a 1.
+MIN_PROFIT = 0.17              
 MIN_ORDER_USD = 10.0
-MAX_SLIPPAGE_PCT = 0.02
-ORDERBOOK_DEPTH_LEVELS = 100
+MAX_SLIPPAGE_PCT = 0.02        # 2% the amount an order is aloud to drop before entry
+ORDERBOOK_DEPTH_LEVELS = 100   # max out at 500 think about it as network trafic you want it thinning
 
 # --- STOP LOSS & RISK CONFIG ---
-TRAILING_STOP_PCT = 0.02
-MAX_HOLD_TIME_SEC = 86400
-TAKE_PROFIT_PCT = 0.08             # 8% hard take-profit ceiling
+TRAILING_STOP_PCT = 0.06   # 6% the amount an order can drop before exiting with losses
+MAX_HOLD_TIME_SEC = 86400  # will let go after this amout of time in the negitive (debating removal)
+TAKE_PROFIT_PCT = 0.08     # take profit thinks sell at 8% rise
 
 # --- STATIC ZONE CONFIG (THE CAGE) ---
 API_URL = "https://api.kraken.com"
 API_VERSION = "0"
-ZONE_BUFFER = 0.00081
-SELL_ZONE_EXTRA = 0.50
-BUY_ZONE_EXTRA = 0.50
-PRICE_CHECK_INTERVAL = 15
-ZONE_OUTSIDE_TIMEOUT = 180
-AVG_SHIFT_PCT = 0.04               # 4% shift required to prevent twitchy redefinitions
-MEDIAN_LOOKBACK = 720
-AUTO_COOLDOWN_SEC = 120
-ENTRY_RANGE_PCT = 0.005
+ZONE_BUFFER = 0.00081  # no act zone center point
+SELL_ZONE_EXTRA = 0.50 # top frame
+BUY_ZONE_EXTRA = 0.50  # bottom frame
+PRICE_CHECK_INTERVAL = 15  # 15 seconds
+ZONE_OUTSIDE_TIMEOUT = 180 # time in seconds
+AVG_SHIFT_PCT = 0.04       # avg counter with 4% acceptance
+MEDIAN_LOOKBACK = 300  # 5 hours of 1-minute candles
+AUTO_COOLDOWN_SEC = 120  # wait 120 seconds after failed ticker
 
 # --- PLOTTING / ML FEATURE CONFIG ---
 BOLLINGER_PERIOD = 50
@@ -94,18 +108,23 @@ IQR_ML_LOOKBACK = 60
 # --- SPRING TRAP CONFIG ---
 SPRING_LOOKBACK = 20
 SPRING_MOMENTUM_WINDOW = 5
-SPRING_VOLUME_WINDOW = 10
+SPRING_VOLUME_WINDOW = 20  # Unified with VOL_TREND_LOOKBACK
 
 # --- KELLY SIZING CONFIG ---
 USE_KELLY_SIZING = True
 KELLY_LOOKBACK_TRADES = 50
-MAX_KELLY_INCREASE_PCT = 0.05
-KELLY_MIN_REDUCE_PCT = 0.0
+MAX_KELLY_INCREASE_PCT = 0.05  # +5% of inicial trade after good exits
+KELLY_MIN_REDUCE_PCT = 0.0   # bad exits shrink it if you want
+
+# these settings are the increase an decrease of initial trade as the machine trades
+# change true to false to turn any one of these on or off
 
 # --- MACD PARAMETERS ---
 MACD_FAST = 12
 MACD_SLOW = 26
 MACD_SIGNAL = 9
+
+# this setting is about the volitility or volume of the active market candles 
 
 # --- ML CONFIGURATION ---
 ML_ENABLED = HAS_ML
@@ -113,11 +132,38 @@ ML_CONFIDENCE = 0.42
 ML_RETRAIN = 50
 ML_MIN_SAMPLES = 100
 ML_MAX_SAMPLES = 250
+ML_TUNING_ITERATIONS = 10
+ML_WF_SPLITS = 5
+
+# these settings are in regard to random trees for ml confidance they should be larger
+# what this means is logic does all of the work for 50 good trades before the ml trainer
+# starts the first trainning loop that sounds crazy but the real min sample is 500
+# random trees is scared of the forest and i havent looked for an alternitive
+
+# --- BACKTEST CONFIG ---
+BACKTEST_CANDLES = 10080
+
+#this is the amount of data called for calculation
+
 
 # --- CIRCUIT BREAKER & STATE ---
-MAX_CONSECUTIVE_FAILURES = 4
+MAX_CONSECUTIVE_FAILURES = 10
 ML_PATH = "ml_models/"
 STATE_FILE = "bot_state.json"
+OB_CACHE_SEC = 5.0
+
+# google it
+
+
+# --- MAGIC NUMBER EXTRACTIONS & MATH CONSTANTS ---
+EPS = 1e-8
+VOL_TREND_LOOKBACK = 20
+ZDEP_MAX = 0.5
+LAST_API_CALL = 0.0
+MIN_API_INTERVAL = 1.1  # Kraken's 1 req/sec limit + buffer
+
+## this was a real argument for these freaking machines idk wtf zdep max is 
+# have fun
 
 # =====================================
 # GLOBAL STATE
@@ -130,710 +176,590 @@ last_trade_time = 0
 last_trade_type = "NONE"
 trading_paused = False
 highest_price_since_entry = 0.0
-
-# Caching
-last_ohlc = None
+last_ohlc: Optional[List[Dict]] = None
 last_ohlc_time = 0.0
+last_ob: Optional[Dict] = None
+last_ob_time = 0.0
+
+# ========================== RATE LIMITING ==========================
+def rate_limit() -> None:
+    global LAST_API_CALL
+    elapsed = time.time() - LAST_API_CALL
+    if elapsed < MIN_API_INTERVAL:
+        time.sleep(MIN_API_INTERVAL - elapsed)
+    LAST_API_CALL = time.time()
 
 # ========================== STATE PERSISTENCE ==========================
-def save_state():
+def save_state() -> None:
     state = {
-        "active_position": active_position,
-        "entry_price": entry_price,
-        "token_amount": token_amount,
-        "last_trade_time": last_trade_time,
-        "last_trade_type": last_trade_type,
-        "highest_price_since_entry": highest_price_since_entry
+        "active_position": active_position, "entry_price": entry_price,
+        "token_amount": token_amount, "last_trade_time": last_trade_time,
+        "last_trade_type": last_trade_type, "highest_price_since_entry": highest_price_since_entry
     }
     try:
         temp_file = STATE_FILE + ".tmp"
-        with open(temp_file, "w") as f:
-            json.dump(state, f)
+        with open(temp_file, "w") as f: json.dump(state, f)
         os.replace(temp_file, STATE_FILE)
-    except Exception as e:
-        logging.error(f"Failed to save state: {e}")
+    except Exception as e: logging.error(f"Failed to save state: {e}")
 
-def load_state():
+def load_state() -> None:
     global active_position, entry_price, token_amount, last_trade_time, last_trade_type, highest_price_since_entry
     if os.path.exists(STATE_FILE):
         try:
-            with open(STATE_FILE, "r") as f:
-                state = json.load(f)
-                active_position = state.get("active_position", False)
-                entry_price = state.get("entry_price", 0.0)
-                token_amount = state.get("token_amount", 0.0)
-                last_trade_time = state.get("last_trade_time", 0)
-                last_trade_type = state.get("last_trade_type", "NONE")
-                highest_price_since_entry = state.get("highest_price_since_entry", 0.0)
-                if active_position:
-                    logging.info(f"Restored active position: {token_amount} @ ${entry_price:.4f}")
-        except Exception as e:
-            logging.error(f"Failed to load state: {e}")
+            with open(STATE_FILE, "r") as f: state = json.load(f)
+            active_position = state.get("active_position", False)
+            entry_price = state.get("entry_price", 0.0)
+            token_amount = state.get("token_amount", 0.0)
+            last_trade_time = state.get("last_trade_time", 0)
+            last_trade_type = state.get("last_trade_type", "NONE")
+            highest_price_since_entry = state.get("highest_price_since_entry", 0.0)
+            if active_position: logging.info(f"Restored active position: {token_amount} @ ${entry_price:.4f}")
+        except Exception as e: logging.error(f"Failed to load state: {e}")
 
 # ========================== API / UTILS ==========================
-def get_valid_kraken_pair(pair):
-    variations = [pair, f"X{pair}", f"{pair}Z", f"X{pair}Z",
-                  pair.replace("USD", "ZUSD"), f"X{pair.replace('USD', '')}ZUSD"]
+def get_valid_kraken_pair(pair: str) -> str:
+    variations = [pair, f"X{pair}", f"{pair}Z", f"X{pair}Z", pair.replace("USD", "ZUSD"), f"X{pair.replace('USD', '')}ZUSD"]
     for variation in variations:
         try:
+            rate_limit()
             response = requests.get(f'{API_URL}/{API_VERSION}/public/Ticker?pair={variation}', timeout=5)
             data = response.json()
             if 'error' not in data or not data['error']:
-                if variation != pair:
-                    logging.info(f"Resolved pair {pair} to {variation}")
+                if variation != pair: logging.info(f"Resolved pair {pair} to {variation}")
                 return variation
-        except Exception:
-            continue
+        except Exception: continue
     logging.warning(f"Could not validate pair {pair}. Proceeding with original.")
     return pair
 
-def get_ticker():
+def get_ticker() -> Optional[float]:
+    rate_limit()
     for attempt in range(3):
         try:
             r = requests.get(f'{API_URL}/{API_VERSION}/public/Ticker?pair={KRAKEN_PAIR}', timeout=5)
-            if r.status_code == 429:
-                time.sleep(3 * (attempt + 1))
-                continue
+            if r.status_code == 429: time.sleep(3 * (attempt + 1)); continue
             data = r.json()
-            if 'error' not in data or not data['error']:
-                return float(data['result'][list(data['result'].keys())[0]]['c'][0])
-        except Exception:
-            time.sleep(2)
+            if 'error' not in data or not data['error']: return float(data['result'][list(data['result'].keys())[0]]['c'][0])
+        except Exception: time.sleep(2)
     return None
 
-def get_ohlc(pair, interval, lookback):
+def get_ohlc(pair: str, interval: int, lookback: int) -> List[Dict]:
+    rate_limit()
     for attempt in range(3):
         try:
-            r = requests.get(f"{API_URL}/{API_VERSION}/public/OHLC",
-                             params={'pair': pair, 'interval': interval}, timeout=10)
-            if r.status_code == 429:
-                time.sleep(3 * (attempt + 1))
-                continue
+            r = requests.get(f"{API_URL}/{API_VERSION}/public/OHLC", params={'pair': pair, 'interval': interval}, timeout=10)
+            if r.status_code == 429: time.sleep(3 * (attempt + 1)); continue
             data = r.json()
-            if 'error' in data and data['error']:
-                return []
+            if 'error' in data and data['error']: return []
             pk = list(data['result'].keys())[0]
-            candles = [{'timestamp': float(x[0]), 'high': float(x[2]),
-                        'low': float(x[3]), 'close': float(x[4]), 'volume': float(x[5])}
-                       for x in data['result'][pk]]
+            candles = [{'timestamp': float(x[0]), 'high': float(x[2]), 'low': float(x[3]), 'close': float(x[4]), 'volume': float(x[5])} for x in data['result'][pk]]
             return candles[-lookback:] if len(candles) > lookback else candles
-        except Exception:
-            time.sleep(2)
+        except Exception: time.sleep(2)
     return []
 
-def get_order_book(pair, count=ORDERBOOK_DEPTH_LEVELS):
+def fetch_ohlc_history(pair: str, total_candles: int, interval: int = 1) -> List[Dict]:
+    collected = {}
+    since = int(time.time()) - total_candles * interval * 60
+    max_pages = (total_candles // 720) + 3
+    for _ in range(max_pages):
+        try:
+            rate_limit()
+            params = {'pair': pair, 'interval': interval, 'since': since}
+            r = requests.get(f"{API_URL}/{API_VERSION}/public/OHLC", params=params, timeout=15)
+            if r.status_code == 429: time.sleep(5); continue
+            data = r.json()
+            if 'error' in data and data['error']: break
+            pk = list(data['result'].keys())[0]
+            batch = data['result'][pk]
+            if not batch: break
+            for x in batch: collected[float(x[0])] = {'timestamp': float(x[0]), 'high': float(x[2]), 'low': float(x[3]), 'close': float(x[4]), 'volume': float(x[5])}
+            last_ts = float(batch[-1][0])
+            since = int(last_ts + interval * 60)
+            if len(batch) < 2: break
+        except Exception as e: logging.error(f"History fetch error: {e}"); break
+        time.sleep(0.5)
+    ordered = [collected[k] for k in sorted(collected)]
+    return ordered[-total_candles:]
+
+def get_order_book(pair: str, count: int = ORDERBOOK_DEPTH_LEVELS) -> Optional[Dict]:
+    rate_limit()
+    global last_ob, last_ob_time
+    now = time.time()
+    if last_ob is not None and (now - last_ob_time) < OB_CACHE_SEC: return last_ob
     for attempt in range(3):
         try:
-            r = requests.get(f"{API_URL}/{API_VERSION}/public/Depth",
-                             params={'pair': pair, 'count': min(count, 500)}, timeout=10)
-            if r.status_code == 429:
-                time.sleep(3 * (attempt + 1))
-                continue
+            r = requests.get(f"{API_URL}/{API_VERSION}/public/Depth", params={'pair': pair, 'count': min(count, 500)}, timeout=10)
+            if r.status_code == 429: time.sleep(3 * (attempt + 1)); continue
             data = r.json()
-            if 'error' in data and data['error']:
-                return None
+            if 'error' in data and data['error']: return None
             pk = list(data['result'].keys())[0]
             ob = data['result'][pk]
-            return {
-                'bids': [(float(p), float(v)) for p, v, *_ in ob.get('bids', [])],
-                'asks': [(float(p), float(v)) for p, v, *_ in ob.get('asks', [])]
-            }
-        except Exception:
-            time.sleep(2)
+            result = {'bids': [(float(p), float(v)) for p, v, *_ in ob.get('bids', [])], 'asks': [(float(p), float(v)) for p, v, *_ in ob.get('asks', [])]}
+            last_ob = result; last_ob_time = time.time()
+            return result
+        except Exception: time.sleep(2)
     return None
 
-def kraken_req(path, data):
+def kraken_req(path: str, data: Dict) -> Dict:
+    rate_limit()
     h = {'API-Key': API_KEY}
     sec = API_SECRET.strip().replace('\n', '').replace(' ', '')
-    if len(sec) % 4:
-        sec += '=' * (4 - len(sec) % 4)
-    
+    if len(sec) % 4: sec += '=' * (4 - len(sec) % 4)
     for a in range(3):
         try:
             n = str(int(time.time() * 1000))
             data['nonce'] = n
             msg = path.encode() + hashlib.sha256((n + urllib.parse.urlencode(data)).encode()).digest()
-            h['API-Sign'] = base64.b64encode(
-                hmac.new(base64.b64decode(sec), msg, hashlib.sha512).digest()
-            ).decode()
-            
+            h['API-Sign'] = base64.b64encode(hmac.new(base64.b64decode(sec), msg, hashlib.sha512).digest()).decode()
             r = requests.post(API_URL + path, data=data, headers=h, timeout=10)
-            if r.status_code == 429:
-                time.sleep(min(60, 2 ** a + 1))
-                continue
+            if r.status_code == 429: time.sleep(min(60, 2 ** a + 1)); continue
             return r.json()
-        except Exception:
-            time.sleep(2 ** a)
+        except Exception: time.sleep(2 ** a)
     return {'error': ['Max retries']}
 
-def place_order(otype, amt, price, ot='market', p2=None):
-    if price < 1.0:
-        amt = round(amt, 4)
-    else:
-        amt = round(amt, BOND_DECIMALS)
-    d = {'ordertype': ot, 'type': otype, 'volume': str(amt),
-         'pair': KRAKEN_PAIR, 'validate': 'false'}
-    if ot == 'limit':
-        d['price'] = str(round(price, 8))
-    elif ot == 'stop-loss-limit':
-        d['price'] = str(round(price, 8))
-        d['price2'] = str(round(p2, 8))
+def place_order(otype: str, amt: float, price: float, ot: str = 'market', p2: float = None) -> Dict:
+    amt = round(amt, 4) if price < 1.0 else round(amt, BOND_DECIMALS)
+    d = {'ordertype': ot, 'type': otype, 'volume': str(amt), 'pair': KRAKEN_PAIR, 'validate': 'false'}
+    if ot == 'limit': d['price'] = str(round(price, 8))
+    elif ot == 'stop-loss-limit': d['price'] = str(round(price, 8)); d['price2'] = str(round(p2, 8))
     return kraken_req(f'/{API_VERSION}/private/AddOrder', d)
 
-def calc_profit(entry, exit_p, amt):
-    if entry and exit_p and amt:
-        return (amt * exit_p * (1 - FEE_RATE)) - (amt * entry * (1 + FEE_RATE))
+def calc_profit(entry: float, exit_p: float, amt: float) -> float:
+    if entry and exit_p and amt: return (amt * exit_p * (1 - FEE_RATE)) - (amt * entry * (1 + FEE_RATE))
     return 0.0
 
-def calc_macd(ohlc, f=MACD_FAST, s=MACD_SLOW, sig=MACD_SIGNAL):
-    if len(ohlc) < s + sig:
-        return None, None, None
-    c = [x['close'] for x in ohlc]
-    def ema(d, sp):
-        a = 2 / (sp + 1)
-        v = [d[0]]
-        for val in d[1:]:
-            v.append(a * val + (1 - a) * v[-1])
-        return v
-    ml = [x - y for x, y in zip(ema(c, f), ema(c, s))]
-    sl = ema(ml, sig)
-    return ml[-1], sl[-1], ml[-1] - sl[-1]
+# ========================== NUMERICALLY STABLE MACD ==========================
+def calc_macd(ohlc: List[Dict], f: int = MACD_FAST, s: int = MACD_SLOW, sig: int = MACD_SIGNAL) -> Tuple:
+    """Calculate MACD with numerically stable EMA and SMA warmup."""
+    if len(ohlc) < s + sig: return None, None, None
+    closes = np.array([x['close'] for x in ohlc], dtype=np.float64)
 
-def simulate_fill(side, amt, ob):
-    if not ob:
-        return False, None, None, 0
+    def ema_stable(data: np.ndarray, span: int) -> np.ndarray:
+        ema_values = np.full(len(data), np.nan)
+        if len(data) < span: return ema_values
+        alpha = 2.0 / (span + 1)
+        ema_values[span-1] = np.mean(data[:span])
+        for i in range(span, len(data)):
+            ema_values[i] = alpha * data[i] + (1 - alpha) * ema_values[i-1]
+        return ema_values
+
+    ema_fast = ema_stable(closes, f)
+    ema_slow = ema_stable(closes, s)
+    macd_line = np.where(np.isnan(ema_slow), np.nan, ema_fast - ema_slow)
+    
+    valid_mask = ~np.isnan(macd_line)
+    valid_macd = macd_line[valid_mask]
+    signal_line = np.full(len(macd_line), np.nan)
+    
+    if len(valid_macd) >= sig:
+        sig_ema = np.zeros(len(valid_macd))
+        alpha_sig = 2.0 / (sig + 1)
+        sig_ema[sig-1] = np.mean(valid_macd[:sig])
+        for i in range(sig, len(valid_macd)):
+            sig_ema[i] = alpha_sig * valid_macd[i] + (1 - alpha_sig) * sig_ema[i-1]
+        start_idx = np.argmax(valid_mask)
+        signal_line[start_idx:] = sig_ema
+
+    histogram = macd_line - signal_line
+    return float(macd_line[-1]), float(signal_line[-1]), float(histogram[-1])
+
+def simulate_fill(side: str, amt: float, ob: Dict) -> Tuple:
+    if not ob: return False, None, None, 0
     levels = ob['asks'] if side == 'buy' else ob['bids']
+    levels = sorted(levels, key=lambda x: x[0]) if side == 'buy' else sorted(levels, key=lambda x: -x[0])
     cum, used, cons = 0.0, 0.0, 0
     for p, a in levels:
-        take = min(a, amt - cum)
-        used += take * p
-        cum += take
-        cons += 1
-        if cum >= amt - 1e-12:
-            break
-    if cum >= amt - 1e-12:
-        return (True, used / amt if cum > 0 else 0, used, cons)
+        take = min(a, amt - cum); used += take * p; cum += take; cons += 1
+        if cum >= amt - EPS: break
+    if cum >= amt - EPS: return (True, used / amt if cum > 0 else 0, used, cons)
     return (False, None, None, cons)
 
-def dyn_size(price, side, ob, max_inv=BASE_INVESTMENT):
-    if not ob:
-        return 0, None, None
+def dyn_size(price: float, side: str, ob: Dict, max_inv: float = BASE_INVESTMENT) -> Tuple:
+    if not ob: return 0, None, None
     levels = ob['asks'] if side == 'buy' else ob['bids']
     total = sum(v for _, v in levels)
-    if total == 0:
-        return 0, None, None
-    tgt = max_inv / price
-    low, high = 0.0, min(tgt, total)
+    if total == 0: return 0, None, None
+    tgt = max_inv / price; low, high = 0.0, min(tgt, total)
     best, bp, bs = 0.0, price, 0.0
     for _ in range(20):
         mid = (low + high) / 2
-        if mid < 1e-12:
-            break
+        if mid < EPS: break
         f, ep, _, _ = simulate_fill(side, mid, ob)
         if f:
             sl = abs(ep - price) / price
-            if sl <= MAX_SLIPPAGE_PCT:
-                best, bp, bs = mid, ep, sl
-                low = mid
-            else:
-                high = mid
-        else:
-            high = mid
+            if sl <= MAX_SLIPPAGE_PCT: best, bp, bs = mid, ep, sl; low = mid
+            else: high = mid
+        else: high = mid
     if best * bp >= MIN_ORDER_USD:
         rounded = round(best, 4) if bp < 1.0 else round(best, BOND_DECIMALS)
-        if rounded > 0:
-            return (rounded, bp, bs)
+        if rounded > 0: return (rounded, bp, bs)
     return (0, None, None)
 
 # ========================== MARKET INDICATORS ==========================
-def calc_bollinger(ohlc, period=BOLLINGER_PERIOD, num_std=BOLLINGER_STD):
-    if not ohlc or len(ohlc) < period:
-        return None, None, None
+def calc_bollinger(ohlc: List[Dict], period: int = BOLLINGER_PERIOD, num_std: float = BOLLINGER_STD) -> Tuple:
+    if not ohlc or len(ohlc) < period: return None, None, None
     closes = np.array([x['close'] for x in ohlc[-period:]])
-    mid = np.mean(closes)
-    std = np.std(closes)
+    mid = np.mean(closes); std = np.std(closes)
     return mid, mid + num_std * std, mid - num_std * std
 
-def calc_iqr(ohlc, lookback=IQR_ML_LOOKBACK):
-    if not ohlc or len(ohlc) < lookback:
-        return None, None, None
+def calc_iqr(ohlc: List[Dict], lookback: int = IQR_ML_LOOKBACK) -> Tuple:
+    if not ohlc or len(ohlc) < lookback: return None, None, None
     closes = np.array([x['close'] for x in ohlc[-lookback:]])
-    q1 = np.percentile(closes, 25)
-    q3 = np.percentile(closes, 75)
+    q1 = np.percentile(closes, 25); q3 = np.percentile(closes, 75)
     return q1, q3, q3 - q1
 
-def calc_spring_trap(ohlc, price):
-    if not ohlc or len(ohlc) < SPRING_LOOKBACK:
-        return 0.5
+def calc_spring_trap(ohlc: List[Dict], price: float) -> float:
+    if not ohlc or len(ohlc) < SPRING_LOOKBACK: return 0.5
     scores = []
     _, _, bb_lower = calc_bollinger(ohlc)
     if bb_lower is not None and bb_lower > 0:
-        compression = max(0.0, min(1.0, 1.0 - (price - bb_lower) / (bb_lower * 0.02 + 1e-8)))
+        compression = max(0.0, min(1.0, 1.0 - (price - bb_lower) / (bb_lower * 0.02 + EPS)))
         scores.append(compression)
     if len(ohlc) >= SPRING_MOMENTUM_WINDOW + 1:
         recent = np.array([x['close'] for x in ohlc[-SPRING_MOMENTUM_WINDOW - 1:]])
         mom = (recent[-1] - recent[0]) / recent[0]
-        momentum_score = min(1.0, abs(mom) / 0.005) if mom < 0 else 0.0
-        scores.append(momentum_score)
+        scores.append(min(1.0, abs(mom) / 0.005) if mom < 0 else 0.0)
     if len(ohlc) >= SPRING_VOLUME_WINDOW:
         vols = np.array([x['volume'] for x in ohlc[-SPRING_VOLUME_WINDOW:]])
         if np.mean(vols) > 0:
             half = len(vols) // 2
-            vol_trend = (np.mean(vols[half:]) - np.mean(vols[:half])) / (np.mean(vols) + 1e-8)
-            volume_score = min(1.0, abs(vol_trend)) if vol_trend < 0 else 0.0
-            scores.append(volume_score)
-    if not scores:
-        return 0.5
+            vol_trend = (np.mean(vols[half:]) - np.mean(vols[:half])) / (np.mean(vols) + EPS)
+            scores.append(min(1.0, abs(vol_trend)) if vol_trend < 0 else 0.0)
+    if not scores: return 0.5
     weights = [0.4, 0.35, 0.25][:len(scores)]
-    spring_tension = sum(s * w for s, w in zip(scores, weights))
-    return max(0.0, min(1.0, spring_tension))
+    return max(0.0, min(1.0, sum(s * w for s, w in zip(scores, weights))))
 
 # ========================== FEATURE CALCULATION LAYER ==========================
-def calculate_all_features(price, zm, trend, ob, pos, ohlc):
-    features = {}
-    
-    # --- Momentum & Volume Features ---
+def calculate_all_features(price: float, zm: Any, trend: str, ob: Optional[Dict], pos: Dict, ohlc: List[Dict]) -> Dict[str, float]:
+    features: Dict[str, float] = {}
     if ohlc and len(ohlc) >= 10:
         closes = [x['close'] for x in ohlc]
-        features['mom5'] = (closes[-1] - closes[-5]) / (closes[-5] + 1e-8)
-        features['mom10'] = (closes[-1] - closes[-10]) / (closes[-10] + 1e-8)
-        
-        # FIX: Volume trend bug - correctly slice last 20 candles and use dynamic half
-        if len(ohlc) >= 20:
-            vols = np.array([x['volume'] for x in ohlc[-20:]])
+        features['mom5'] = (closes[-1] - closes[-5]) / (closes[-5] + EPS)
+        features['mom10'] = (closes[-1] - closes[-10]) / (closes[-10] + EPS)
+        if len(ohlc) >= VOL_TREND_LOOKBACK:
+            vols = np.array([x['volume'] for x in ohlc[-VOL_TREND_LOOKBACK:]])
             half = len(vols) // 2
-            features['volTrend'] = (np.mean(vols[half:]) - np.mean(vols[:half])) / (np.mean(vols) + 1e-8)
+            features['volTrend'] = (np.mean(vols[half:]) - np.mean(vols[:half])) / (np.mean(vols) + EPS)
             features['vol'] = float(vols[-1])
-        else:
-            features['volTrend'] = 0.0
-            features['vol'] = float(ohlc[-1]['volume'])
-    else:
-        features['mom5'] = 0.0
-        features['mom10'] = 0.0
-        features['vol'] = 0.0
-        features['volTrend'] = 0.0
+        else: features['volTrend'] = 0.0; features['vol'] = float(ohlc[-1]['volume'])
+    else: features['mom5'] = features['mom10'] = features['vol'] = features['volTrend'] = 0.0
 
-    # --- Zone Features ---
     zone = zm.zone(price) if zm else 'OUTSIDE'
     features['zBuy'] = 1.0 if zone == 'BUY' else 0.0
     features['zSell'] = 1.0 if zone == 'SELL' else 0.0
     features['zNeu'] = 1.0 if zone == 'NEUTRAL' else 0.0
-    
-    if zone == 'BUY' and zm and zm.buy_zone:
-        features['zDep'] = abs(price - zm.buy_zone[1]) / price if price > 0 else 0.0
-    elif zone == 'SELL' and zm and zm.sell_zone:
-        features['zDep'] = abs(price - zm.sell_zone[0]) / price if price > 0 else 0.0
-    else:
-        features['zDep'] = 0.0
+    if zone == 'BUY' and zm and zm.buy_zone: features['zDep'] = abs(price - zm.buy_zone[1]) / price if price > 0 else 0.0
+    elif zone == 'SELL' and zm and zm.sell_zone: features['zDep'] = abs(price - zm.sell_zone[0]) / price if price > 0 else 0.0
+    else: features['zDep'] = 0.0
 
-    # --- Trend Features ---
     features['tUp'] = 1.0 if trend == "UP" else 0.0
     features['tDn'] = 1.0 if trend == "DOWN" else 0.0
 
-    # --- Order Book Features ---
     if ob:
-        bids = ob.get('bids', [])[:20]
-        asks = ob.get('asks', [])[:20]
+        bids = ob.get('bids', [])[:20]; asks = ob.get('asks', [])[:20]
         if bids and asks:
             features['sprd'] = (asks[0][0] - bids[0][0]) / price if price > 0 else 0.0
-            bid_vol = sum(v for _, v in bids)
-            ask_vol = sum(v for _, v in asks)
-            features['imb'] = (bid_vol - ask_vol) / (bid_vol + ask_vol + 1e-8)
-            features['liq'] = (bid_vol + ask_vol) * price / 1000.0
-        else:
-            features['sprd'] = 0.0
-            features['imb'] = 0.0
-            features['liq'] = 0.0
-    else:
-        features['sprd'] = 0.0
-        features['imb'] = 0.0
-        features['liq'] = 0.0
+            bid_vol = sum(v for _, v in bids); ask_vol = sum(v for _, v in asks)
+            features['imb'] = (bid_vol - ask_vol) / (bid_vol + ask_vol + EPS)
+            features['liq'] = (bid_vol + ask_vol) / 1000.0  # Pure volume
+        else: features['sprd'] = features['imb'] = features['liq'] = 0.0
+    else: features['sprd'] = features['imb'] = features['liq'] = 0.0
 
-    # --- Position Features ---
     if pos.get('active'):
         features['pnl'] = calc_profit(pos['entry'], price, pos['amt']) if pos.get('amt') else 0.0
         features['hold'] = (time.time() - pos['time']) / 3600.0 if pos.get('time') else 0.0
-    else:
-        features['pnl'] = 0.0
-        features['hold'] = 0.0
+    else: features['pnl'] = features['hold'] = 0.0
 
-    # --- Spring Trap Feature ---
     features['spring'] = calc_spring_trap(ohlc, price)
-
+    for k, v in features.items():
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)): features[k] = 0.0
     return features
 
 # ========================== LOGIC-FIRST FILTERS ==========================
-def pre_ml_filters(features, price, zm, ob, pos, ml=None):
-    """Returns (should_buy, should_sell, confidence/reason)"""
+def pre_ml_filters(features: Dict[str, float], price: float, zm: Any, ob: Optional[Dict], pos: Dict, ml: Any = None) -> Tuple[bool, bool, str]:
+    if features['volTrend'] < -0.5 and (features['vol'] * price) < 1000: return False, False, "Low volume (USD) + declining"
+    if features['zBuy'] == 1.0 and features['mom5'] < -0.001: return False, False, "Buy zone but negative momentum"
+    if features['zSell'] == 1.0 and features['mom5'] > 0.001: return False, False, "Sell zone but positive momentum"
+    if features['spring'] > 0.7 and features['zBuy'] == 1.0: return False, False, "Spring trap in buy zone"
+    if features['liq'] < 50.0 and features['sprd'] > 0.005: return False, False, "Thin book + wide spread"
+    if features['tUp'] == 1.0 and features['mom10'] < -0.002: return False, False, "MACD up but 10-candle momentum down"
     
-    # --- 1. Volume Filter (USD terms) ---
-    if features['volTrend'] < -0.5 and (features['vol'] * price) < 1000:
-        return False, False, "Low volume (USD) + declining"
-
-    # --- 2. Zone + Momentum Alignment ---
-    if features['zBuy'] == 1.0 and features['mom5'] < -0.001:
-        return False, False, "Buy zone but negative momentum"
-
-    if features['zSell'] == 1.0 and features['mom5'] > 0.001:
-        return False, False, "Sell zone but positive momentum"
-
-    # --- 3. Spring Trap Protection ---
-    if features['spring'] > 0.7 and features['zBuy'] == 1.0:
-        return False, False, "Spring trap in buy zone"
-
-    # --- 4. Order Book Liquidity Check ---
-    if features['liq'] < 50.0 and features['sprd'] > 0.005:
-        return False, False, "Thin book + wide spread"
-
-    # --- 5. Trend Confirmation ---
-    if features['tUp'] == 1.0 and features['mom10'] < -0.002:
-        return False, False, "MACD up but 10-candle momentum down"
-
-    # --- 6. Position Holding Logic (Soft Exits) ---
     if pos.get('active'):
         entry_val = pos.get('entry', 0) * pos.get('amt', 0)
+        if ml and ml.check_ml_stop_loss(pos['entry'], price, features['pnl']): return False, True, "ML Early Stop Loss"
+        if features['spring'] > 0.8 and features['volTrend'] < -0.3: return False, True, "Spring + volume decline = exit"
+        if zm and zm.sell_sig(price) and features['pnl'] >= MIN_PROFIT: return False, True, "Zone Sell + Min Profit"
+        if features['mom5'] < 0 and features['pnl'] > 0.05 * entry_val: return False, True, "Take Profit (5%) + Momentum Stall"
         
-        # ML Early Stop Loss (wired in)
-        if ml and ml.check_ml_stop_loss(pos['entry'], price, features['pnl']):
-            return False, True, "ML Early Stop Loss"
-            
-        # Spring + volume decline = exit
-        if features['spring'] > 0.8 and features['volTrend'] < -0.3:
-            return False, True, "Spring + volume decline = exit"
-        
-        # Take profit if momentum stalls (5% of entry value)
-        if features['mom5'] < 0 and features['pnl'] > 0.05 * entry_val:
-            return False, True, "Take Profit (5%) + Momentum Stall"
-
-    # --- 7. Zone Entry Confirmation ---
-    # FIX: Method name mismatch resolved (using buy_sig consistently)
     if zm and zm.buy_sig(price):
+        if features.get('zDep', 0.0) > ZDEP_MAX: return False, False, "Too deep in buy zone"
         buy_confidence = 0.0
-        # FIX: Momentum scaling bug - cap the multiplier to prevent broken confidence weights
-        # mom5 is a ratio (e.g., 0.01 for 1%). 0.01 * 50 = 0.5. Capped at 1.0.
-        buy_confidence += max(0.0, min(1.0, features['mom5'] * 50.0)) * 0.3
+        buy_confidence += max(0.0, min(1.0, (features['mom5'] + 0.01) * 50.0)) * 0.3
         buy_confidence += (1 - features['spring']) * 0.4
         buy_confidence += max(0.0, min(1.0, features['volTrend'] + 0.5)) * 0.2
         buy_confidence += max(0.0, min(1.0, features['imb'] + 0.5)) * 0.1
-
-        if buy_confidence > 0.5:
-            return True, False, f"Zone buy + confidence {buy_confidence:.2f}"
-
+        if buy_confidence > 0.5: return True, False, f"Zone buy + confidence {buy_confidence:.2f}"
     return False, False, "No signal"
 
 # ========================== ML VALIDATION LAYER ==========================
-def trade_decision(features, price, zm, ob, pos, ml):
-    # --- STEP 1: Logic-First Decision ---
+def trade_decision(features: Dict[str, float], price: float, zm: Any, ob: Optional[Dict], pos: Dict, ml: Any) -> Tuple[bool, bool, str]:
     should_buy, should_sell, logic_reason = pre_ml_filters(features, price, zm, ob, pos, ml)
-
-    # --- STEP 2: ML Validation (if enabled) ---
     if ml and ml.trained:
         entry_prob = ml.pred_entry(features)
         exit_pred = ml.pred_exit(features)
-
-        # ML can VETO buy
         if should_buy and entry_prob < ML_CONFIDENCE:
             logging.info(f"ML VETO: Buy blocked (prob={entry_prob:.3f} < {ML_CONFIDENCE})")
             should_buy = False
-
-        # ML can VETO sell (if model predicts final PnL will be significantly better than current PnL)
         if should_sell and exit_pred is not None:
             current_profit = features.get('pnl', 0.0)
-            if exit_pred > current_profit:
-                logging.info(f"ML VETO: Sell blocked (exit_pred={exit_pred:.2f} > current_profit={current_profit:.2f})")
+            if exit_pred > current_profit * 1.2:
+                logging.info(f"ML VETO: Sell blocked (exit_pred={exit_pred:.2f} > current={current_profit:.2f} * 1.2)")
                 should_sell = False
             elif exit_pred < current_profit * 0.5:
-                logging.info(f"ML BOOST: Sell encouraged (exit_pred={exit_pred:.2f} < current_profit={current_profit:.2f} * 0.5)")
-
+                logging.info(f"ML BOOST: Sell encouraged (exit_pred={exit_pred:.2f})")
     return should_buy, should_sell, logic_reason
 
 # ========================== KELLY SIZING ==========================
-def get_kelly_bet(ml):
-    if not USE_KELLY_SIZING:
-        return BASE_INVESTMENT
+def get_kelly_bet(ml: Any) -> float:
+    if not USE_KELLY_SIZING: return BASE_INVESTMENT
     if not ml or len(ml.trades) < KELLY_LOOKBACK_TRADES:
-        return BASE_INVESTMENT
+        logging.info("Kelly: insufficient trades, falling back to BASE_INVESTMENT"); return BASE_INVESTMENT
     recent = list(ml.trades)[-KELLY_LOOKBACK_TRADES:]
-    wins = [t['p'] for t in recent if t['l'] == 1]
-    losses = [t['p'] for t in recent if t['l'] == 0]
+    wins = [t['p'] for t in recent if t['l'] == 1]; losses = [t['p'] for t in recent if t['l'] == 0]
     if not wins or not losses:
-        return BASE_INVESTMENT
-    win_rate = len(wins) / len(recent)
-    avg_win = np.mean(wins)
-    avg_loss = abs(np.mean(losses))
-    if avg_loss == 0:
-        return BASE_INVESTMENT
-    b = avg_win / avg_loss
-    p, q = win_rate, 1 - win_rate
+        logging.info("Kelly: no wins or losses, falling back to BASE_INVESTMENT"); return BASE_INVESTMENT
+    win_rate = len(wins) / len(recent); avg_win = np.mean(wins); avg_loss = abs(np.mean(losses))
+    if avg_loss == 0: return BASE_INVESTMENT
+    b = avg_win / avg_loss; p, q = win_rate, 1 - win_rate
     kelly_f = (b * p - q) / b
     safe_f = max(KELLY_MIN_REDUCE_PCT, min(kelly_f * 0.5, MAX_KELLY_INCREASE_PCT))
     bet_size = BASE_INVESTMENT * (1 + safe_f)
     if bet_size < MIN_ORDER_USD:
-        logging.info(f"KELLY BLOCKED: Bet size ${bet_size:.2f} < ${MIN_ORDER_USD:.2f} minimum")
-        return 0
+        logging.info(f"KELLY BLOCKED: Bet size ${bet_size:.2f} < ${MIN_ORDER_USD:.2f} minimum"); return 0
     return bet_size
 
 # ========================== ML ADVISOR ==========================
 class MLAdvisor:
     def __init__(self):
-        self.entry_model = None
-        self.exit_model = None
-        self.scaler = RobustScaler()
-        self.hist = deque(maxlen=100)
-        self.trades = []
-        self.trained = False
-        self.fnames = ['mom5', 'mom10', 'vol', 'zBuy', 'zSell', 'zNeu', 'zDep',
-                       'tUp', 'tDn', 'sprd', 'imb', 'liq', 'pnl', 'hold',
-                       'spring', 'volTrend']
+        self.entry_model = None; self.exit_model = None; self.scaler = RobustScaler()
+        self.hist = deque(maxlen=100); self.trades = []; self.trained = False
+        self.best_entry_params = {}; self.best_exit_params = {}
+        self.fnames = ['mom5', 'mom10', 'vol', 'zBuy', 'zSell', 'zNeu', 'zDep', 'tUp', 'tDn', 'sprd', 'imb', 'liq', 'pnl', 'hold', 'spring', 'volTrend']
         self._load()
 
-    def _vec(self, f):
+    def _vec(self, f: Dict) -> np.ndarray:
+        missing = [name for name in self.fnames if name not in f]
+        if missing: logging.warning(f"Missing features in prediction: {missing}. Defaulting to 0.0")
         return np.array([[f.get(name, 0.0) for name in self.fnames]])
 
-    def pred_entry(self, f):
-        if not self.trained or self.entry_model is None:
-            return 0.5
+    def pred_entry(self, f: Dict) -> float:
+        if not self.trained or self.entry_model is None: return 0.9
         try:
-            vec_scaled = self.scaler.transform(self._vec(f))
-            prob = self.entry_model.predict_proba(vec_scaled)[0][1]
-            return float(prob)
-        except Exception as e:
-            logging.error(f"ML entry prediction failed: {e}")
-            return 0.5
+            proba = self.entry_model.predict_proba(self.scaler.transform(self._vec(f)))
+            if proba.shape[1] < 2: return 0.9
+            return float(proba[0][1])
+        except Exception as e: logging.error(f"ML entry prediction failed: {e}"); return 0.9
 
-    def pred_exit(self, f):
-        if not self.trained or self.exit_model is None:
-            return None
-        try:
-            vec_scaled = self.scaler.transform(self._vec(f))
-            prediction = self.exit_model.predict(vec_scaled)[0]
-            return float(prediction)
-        except Exception as e:
-            logging.error(f"ML exit prediction failed: {e}")
-            self.trained = False
-            return None
+    def pred_exit(self, f: Dict) -> Optional[float]:
+        if not self.trained or self.exit_model is None: return None
+        try: return float(self.exit_model.predict(self.scaler.transform(self._vec(f)))[0])
+        except Exception as e: logging.error(f"ML exit prediction failed: {e}"); self.trained = False; return None
 
-    def check_ml_stop_loss(self, entry_price, current_price, current_profit):
-        if not self.trained or len(self.trades) < ML_MIN_SAMPLES:
-            return False
-        if entry_price == 0:
-            return False
+    def check_ml_stop_loss(self, entry_price: float, current_price: float, current_profit: float) -> bool:
+        if not self.trained or len(self.trades) < ML_MIN_SAMPLES or entry_price == 0: return False
         loss_pct = (entry_price - current_price) / entry_price
-        if 0.02 <= loss_pct <= 0.13:
-            if len(self.hist) > 0:
-                last_features = self.hist[-1]
-                spring_tension = last_features.get('spring', 0.5)
-                vol_trend = last_features.get('volTrend', 0.0)
-                if spring_tension > 0.7 and current_profit < 0:
-                    return True
-                if vol_trend < -0.5 and current_profit < 0:
-                    return True
+        if 0.02 <= loss_pct <= 0.13 and self.hist:
+            last = self.hist[-1]
+            if last.get('spring', 0.5) > 0.7 and current_profit < 0: return True
+            if last.get('volTrend', 0.0) < -0.5 and current_profit < 0: return True
         return False
 
-    def record(self, ef, ep, xp, amt):
+    def record(self, ef: Dict, ep: float, xp: float, amt: float) -> None:
         p = calc_profit(ep, xp, amt)
         self.trades.append({'f': ef.copy(), 'p': p, 'l': 1 if p >= MIN_PROFIT else 0})
-        if len(self.trades) > ML_MAX_SAMPLES:
-            self.trades = self.trades[-ML_MAX_SAMPLES:]
-        
+        if len(self.trades) > ML_MAX_SAMPLES: self.trades = self.trades[-ML_MAX_SAMPLES:]
         if len(self.trades) % ML_RETRAIN == 0 or len(self.trades) == ML_MIN_SAMPLES:
-            with open("ml_trade_samples.log", "a") as f:
-                f.write(f"{time.time()},{p},{1 if p >= MIN_PROFIT else 0},{json.dumps(ef)}\n")
-        
-        if len(self.trades) >= ML_MIN_SAMPLES and len(self.trades) % ML_RETRAIN == 0:
-            self._train()
+            with open("ml_trade_samples.log", "a") as f: f.write(f"{time.time()},{p},{1 if p >= MIN_PROFIT else 0},{json.dumps(ef)}\n")
+        if len(self.trades) >= ML_MIN_SAMPLES and len(self.trades) % ML_RETRAIN == 0: self._train()
 
-    def _train(self):
-        if len(self.trades) < ML_MIN_SAMPLES:
-            return
-        
+    def _entry_pipeline(self, params: Dict = None) -> Pipeline:
+        p = params or {}
+        return Pipeline([('scaler', RobustScaler()), ('model', HistGradientBoostingClassifier(max_iter=p.get('max_iter', 100), max_leaf_nodes=p.get('max_leaf_nodes', 15), learning_rate=p.get('learning_rate', 0.08), l2_regularization=p.get('l2_regularization', 1.0), random_state=42))])
+
+    def _exit_pipeline(self, params: Dict = None) -> Pipeline:
+        p = params or {}
+        return Pipeline([('scaler', RobustScaler()), ('model', GradientBoostingRegressor(n_estimators=p.get('n_estimators', 100), learning_rate=p.get('learning_rate', 0.08), max_depth=p.get('max_depth', 3), random_state=42))])
+
+    def walk_forward_validate(self, X: np.ndarray, y_entry: np.ndarray, y_exit: np.ndarray) -> Optional[Dict]:
+        tscv = TimeSeriesSplit(n_splits=ML_WF_SPLITS); accs, rmses = [], []; skipped_folds = 0
+        for train_idx, test_idx in tscv.split(X):
+            X_tr, X_te = X[train_idx], X[test_idx]
+            ye_tr, ye_te = y_entry[train_idx], y_entry[test_idx]
+            yx_tr, yx_te = y_exit[train_idx], y_exit[test_idx]
+            if len(np.unique(ye_tr)) < 2 or len(test_idx) == 0: skipped_folds += 1; continue
+            pe = self._entry_pipeline(self.best_entry_params); pe.fit(X_tr, ye_tr); accs.append(float(np.mean(pe.predict(X_te) == ye_te)))
+            px = self._exit_pipeline(self.best_exit_params); px.fit(X_tr, yx_tr); pred = px.predict(X_te); rmses.append(float(np.sqrt(np.mean((pred - yx_te) ** 2))))
+        if skipped_folds == ML_WF_SPLITS or not accs or not rmses:
+            logging.warning("WF validation: no valid folds. Rejecting model."); return None
+        wf = {'folds': len(accs), 'entry_accuracy_oos': float(np.mean(accs)), 'exit_rmse_oos': float(np.mean(rmses))}
+        if wf['entry_accuracy_oos'] < 0.6 or wf['exit_rmse_oos'] > 0.5:
+            logging.warning(f"WF validation failed (acc={wf['entry_accuracy_oos']:.2f}, rmse={wf['exit_rmse_oos']:.2f}). Rejecting model."); return None
+        return wf
+
+    def _train(self) -> None:
+        if len(self.trades) < ML_MIN_SAMPLES: return
         X = np.array([self._vec(t['f'])[0] for t in self.trades])
-        y_entry = np.array([t['l'] for t in self.trades])
-        y_exit = np.array([t['p'] for t in self.trades])
+        y_entry = np.array([t['l'] for t in self.trades]); y_exit = np.array([t['p'] for t in self.trades])
+        if len(np.unique(y_entry)) < 2: logging.warning("ML training skipped: need both win and loss samples."); return
         
-        X_scaled = self.scaler.fit_transform(X)
-        
-        self.entry_model = HistGradientBoostingClassifier(max_iter=100, max_leaf_nodes=16, random_state=42)
-        self.entry_model.fit(X_scaled, y_entry)
-        
-        self.exit_model = GradientBoostingRegressor(n_estimators=100, max_depth=4, random_state=42)
-        self.exit_model.fit(X_scaled, y_exit)
-        
+        entry_search = RandomizedSearchCV(self._entry_pipeline(), param_distributions={'model__max_iter': randint(50, 200), 'model__max_leaf_nodes': randint(7, 31), 'model__learning_rate': uniform(0.02, 0.15), 'model__l2_regularization': uniform(0.0, 5.0)}, n_iter=ML_TUNING_ITERATIONS, cv=TimeSeriesSplit(3), scoring='accuracy', random_state=42, n_jobs=-1)
+        entry_search.fit(X, y_entry); self.best_entry_params = entry_search.best_params_
+        logging.info(f"Entry CV accuracy: {entry_search.best_score_:.3f}")
+
+        exit_search = RandomizedSearchCV(self._exit_pipeline(), param_distributions={'model__n_estimators': randint(50, 200), 'model__learning_rate': uniform(0.01, 0.2), 'model__max_depth': randint(2, 6)}, n_iter=ML_TUNING_ITERATIONS, cv=TimeSeriesSplit(3), scoring='neg_mean_squared_error', random_state=42, n_jobs=-1)
+        exit_search.fit(X, y_exit); self.best_exit_params = exit_search.best_params_
+        logging.info(f"Exit CV RMSE: {-exit_search.best_score_:.3f}")
+
+        wf = self.walk_forward_validate(X, y_entry, y_exit)
+        if wf is None: return
+        logging.info(f"WALK-FORWARD: {wf}")
+
+        final_entry = self._entry_pipeline(self.best_entry_params).fit(X, y_entry)
+        final_exit = self._exit_pipeline(self.best_exit_params).fit(X, y_exit)
+        self.scaler = final_entry.named_steps['scaler']; self.entry_model = final_entry.named_steps['model']; self.exit_model = final_exit.named_steps['model']
         self.trained = True
-        logging.info(f"ML models trained on {len(self.trades)} samples.")
-        
+        logging.info(f"ML trained on {len(self.trades)} samples. Entry params: {self.best_entry_params}")
+        if hasattr(self.entry_model, 'feature_importances_'):
+            importances = dict(zip(self.fnames, self.entry_model.feature_importances_))
+            logging.info(f"Entry feature importances: {importances}")
+
         try:
             os.makedirs(ML_PATH, exist_ok=True)
-            joblib.dump(self.entry_model, os.path.join(ML_PATH, 'entry_model.pkl'))
-            joblib.dump(self.exit_model, os.path.join(ML_PATH, 'exit_model.pkl'))
-            joblib.dump(self.scaler, os.path.join(ML_PATH, 'scaler.pkl'))
-        except Exception as e:
-            logging.error(f"Failed to save ML models: {e}")
+            try: joblib.dump(self.entry_model, os.path.join(ML_PATH, 'entry_model.pkl'))
+            except Exception as e: logging.error(f"Failed to save entry model: {e}")
+            try: joblib.dump(self.exit_model, os.path.join(ML_PATH, 'exit_model.pkl'))
+            except Exception as e: logging.error(f"Failed to save exit model: {e}")
+            try: joblib.dump(self.scaler, os.path.join(ML_PATH, 'scaler.pkl'))
+            except Exception as e: logging.error(f"Failed to save scaler: {e}")
+            with open(os.path.join(ML_PATH, 'tuning_report.json'), 'w') as f:
+                json.dump({'entry_params': {k: float(v) if isinstance(v, (np.floating, float)) else int(v) for k, v in self.best_entry_params.items()}, 'exit_params': {k: float(v) if isinstance(v, (np.floating, float)) else int(v) for k, v in self.best_exit_params.items()}, 'walk_forward': wf, 'trained_at': time.time(), 'samples': len(self.trades)}, f, indent=2)
+        except Exception as e: logging.error(f"Failed to save ML tuning report: {e}")
 
-    def _load(self):
+    def _load(self) -> None:
         try:
-            if os.path.exists(os.path.join(ML_PATH, 'entry_model.pkl')):
-                self.entry_model = joblib.load(os.path.join(ML_PATH, 'entry_model.pkl'))
-                self.exit_model = joblib.load(os.path.join(ML_PATH, 'exit_model.pkl'))
-                self.scaler = joblib.load(os.path.join(ML_PATH, 'scaler.pkl'))
-                self.trained = True
-                logging.info("Loaded existing ML models.")
-        except Exception as e:
-            logging.warning(f"Could not load ML models: {e}")
+            ep = os.path.join(ML_PATH, 'entry_model.pkl'); xp = os.path.join(ML_PATH, 'exit_model.pkl'); sp = os.path.join(ML_PATH, 'scaler.pkl')
+            if os.path.exists(ep) and os.path.exists(xp) and os.path.exists(sp):
+                self.entry_model = joblib.load(ep); self.exit_model = joblib.load(xp); self.scaler = joblib.load(sp)
+                self.trained = True; logging.info("Loaded existing ML models.")
+                rp = os.path.join(ML_PATH, 'tuning_report.json')
+                if os.path.exists(rp):
+                    with open(rp) as f: report = json.load(f)
+                    self.best_entry_params = report.get('entry_params', {}); self.best_exit_params = report.get('exit_params', {})
+        except Exception as e: logging.warning(f"Could not load ML models: {e}")
 
 # ========================== ZONE MACHINE (STATIC CAGE) ==========================
 class ZoneMachine:
     def __init__(self):
-        self.buy_zone = None
-        self.sell_zone = None
-        self.neutral_zone = None
-        self.median = 0.0
-        self.last_rebuild_time = 0
-        # FIX: Method name mismatch resolved, keeping buy_sig/sell_sig as canonical names
-        self.buy_prices = deque(maxlen=250)
-        self.sell_prices = deque(maxlen=250)
-        self.neutral_prices = deque(maxlen=250)
+        self.buy_zone = None; self.sell_zone = None; self.neutral_zone = None; self.median = 0.0; self.last_rebuild_time = 0
+        self.buy_prices = deque(maxlen=250); self.sell_prices = deque(maxlen=250); self.neutral_prices = deque(maxlen=250)
 
-    def init(self, ohlc):
-        if not ohlc or len(ohlc) < 10:
-            return False
-        closes = [x['close'] for x in ohlc]
-        self.median = np.median(closes)
+    def init(self, ohlc: List[Dict]) -> bool:
+        if not ohlc or len(ohlc) < 10: return False
+        self.median = np.median([x['close'] for x in ohlc])
         self.neutral_zone = (self.median - ZONE_BUFFER, self.median + ZONE_BUFFER)
         self.buy_zone = (self.median - ZONE_BUFFER - BUY_ZONE_EXTRA, self.median - ZONE_BUFFER)
         self.sell_zone = (self.median + ZONE_BUFFER, self.median + ZONE_BUFFER + SELL_ZONE_EXTRA)
-        self.last_rebuild_time = time.time()
-        return True
+        self.last_rebuild_time = time.time(); return True
 
-    def zone(self, price):
-        if self.buy_zone and self.buy_zone[0] <= price <= self.buy_zone[1]:
-            return 'BUY'
-        elif self.sell_zone and self.sell_zone[0] <= price <= self.sell_zone[1]:
-            return 'SELL'
-        elif self.neutral_zone and self.neutral_zone[0] <= price <= self.neutral_zone[1]:
-            return 'NEUTRAL'
-        else:
-            return 'OUTSIDE'
+    def zone(self, price: float) -> str:
+        if self.buy_zone and self.buy_zone[0] <= price <= self.buy_zone[1]: return 'BUY'
+        elif self.sell_zone and self.sell_zone[0] <= price <= self.sell_zone[1]: return 'SELL'
+        elif self.neutral_zone and self.neutral_zone[0] <= price <= self.neutral_zone[1]: return 'NEUTRAL'
+        return 'OUTSIDE'
 
-    def buy_sig(self, price):
+    def buy_sig(self, price: float) -> bool:
         z = self.zone(price)
         if z == 'BUY':
             self.buy_prices.append(price)
-            avg_price = np.mean(self.buy_prices) if self.buy_prices else self.median
-            if abs(price - avg_price) / avg_price <= ENTRY_RANGE_PCT:
-                return True
+            avg = np.mean(self.buy_prices) if self.buy_prices else self.median
+            return abs(price - avg) / avg <= ENTRY_RANGE_PCT if avg > 0 else False
         return False
 
-    def sell_sig(self, price):
+    def sell_sig(self, price: float) -> bool:
         z = self.zone(price)
         if z == 'SELL':
             self.sell_prices.append(price)
-            avg_price = np.mean(self.sell_prices) if self.sell_prices else self.median
-            if abs(price - avg_price) / avg_price <= ENTRY_RANGE_PCT:
-                return True
+            avg = np.mean(self.sell_prices) if self.sell_prices else self.median
+            return abs(price - avg) / avg <= ENTRY_RANGE_PCT if avg > 0 else False
         return False
 
-    def check_redefinition(self, price, ohlc):
+    def check_redefinition(self, price: float, ohlc: List[Dict]) -> bool:
         z = self.zone(price)
         if z == 'OUTSIDE' and time.time() - self.last_rebuild_time > ZONE_OUTSIDE_TIMEOUT:
-            return True
-        if ohlc and len(ohlc) >= 60:
-            recent_closes = [x['close'] for x in ohlc[-20:]]
-            older_closes = [x['close'] for x in ohlc[-60:-20]]
-            recent_med = np.median(recent_closes)
-            older_med = np.median(older_closes)
-            if older_med != 0:
-                shift_pct = abs(recent_med - older_med) / older_med
-                if shift_pct > AVG_SHIFT_PCT:
-                    return True
+            if ohlc and len(ohlc) >= 60:
+                recent_med = np.median([x['close'] for x in ohlc[-20:]])
+                older_med = np.median([x['close'] for x in ohlc[-60:-20]])
+                if older_med != 0 and abs(recent_med - older_med) / older_med > AVG_SHIFT_PCT: return True
         return False
 
 # ========================== TRADE TICKET PRINTER ==========================
-def print_ticket(side, status, price, amount, error=None, txid=None, trade_type="AUTO"):
+def print_ticket(side: str, status: str, price: float, amount: float, error: str = None, txid: str = None, trade_type: str = "AUTO") -> None:
     print(f"\n{BORDER}====== {TITLE}TRADE TICKET{BORDER} ====={RESET}", flush=True)
     print(f"{SUB}Type:{RESET} {NUM}{side.upper()} ({trade_type}){RESET}", flush=True)
     print(f"{SUB}Status:{RESET} {NUM}{status}{RESET}", flush=True)
     print(f"{SUB}Price:{RESET} {NUM}${price:.4f}{RESET}", flush=True)
     print(f"{SUB}Amount:{RESET} {NUM}{amount:.8f}{RESET}", flush=True)
-    if txid:
-        print(f"{SUB}Kraken ID:{RESET} {NUM}{txid}{RESET}", flush=True)
-    if error:
-        print(f"{SUB}Reason:{RESET} {PROF_N}{error}{RESET}", flush=True)
+    if txid: print(f"{SUB}Kraken ID:{RESET} {NUM}{txid}{RESET}", flush=True)
+    if error: print(f"{SUB}Reason:{RESET} {PROF_N}{error}{RESET}", flush=True)
     print(f"{SUB}Time:{RESET} {NUM}{time.strftime('%H:%M:%S')}{RESET}", flush=True)
     print(f"{BORDER}==========================={RESET}\n", flush=True)
 
 # ========================== MANUAL EXECUTION ==========================
-def execute_manual(side):
+def execute_manual(side: str) -> None:
     global active_position, entry_price, token_amount, last_trade_time, last_trade_type
     price = get_ticker()
-    if not price:
-        logging.error("Cannot get current price for manual execution.")
-        return
-    
+    if not price: logging.error("Cannot get current price for manual execution."); return
     if side == "b":
-        if active_position:
-            print_ticket("BUY", "BLOCKED", price, 0.0, error="Position already active", trade_type="MANUAL")
-            return
+        if active_position: print_ticket("BUY", "BLOCKED", price, 0.0, error="Position already active", trade_type="MANUAL"); return
         ob = get_order_book(KRAKEN_PAIR)
-        amt, avg_price, slippage = dyn_size(price, 'buy', ob)
-        if not amt or amt * price < MIN_ORDER_USD:
-            print_ticket("BUY", "FAILED", price, amt or 0.0, error=f"Below Kraken min order (${MIN_ORDER_USD:.2f})", trade_type="MANUAL")
-            return
-        
-        logging.info(f"Sending MANUAL BUY for {amt:.8f} @ ~${price:.4f}...")
+        amt, avg_price, _ = dyn_size(price, 'buy', ob)
+        if not amt or amt * price < MIN_ORDER_USD: print_ticket("BUY", "FAILED", price, amt or 0.0, error=f"Below Kraken min order (${MIN_ORDER_USD:.2f})", trade_type="MANUAL"); return
         res = place_order('buy', amt, price)
         if res and not res.get('error'):
-            active_position = True
-            entry_price = avg_price
-            token_amount = amt
-            last_trade_time = time.time()
-            last_trade_type = "MANUAL BUY"
+            active_position = True; entry_price = avg_price; token_amount = amt; last_trade_time = time.time(); last_trade_type = "MANUAL BUY"
             txid = res.get('result', {}).get('txid', ['N/A'])[0] if isinstance(res.get('result', {}).get('txid'), list) else 'N/A'
-            print_ticket("BUY", "SUCCESS", avg_price, amt, txid=txid, trade_type="MANUAL")
-            save_state()
+            print_ticket("BUY", "SUCCESS", avg_price, amt, txid=txid, trade_type="MANUAL"); save_state()
         else:
             err = res.get('error', ['Unknown'])[0] if isinstance(res.get('error'), list) else 'No response'
             print_ticket("BUY", "REJECTED", price, amt, error=err, trade_type="MANUAL")
-            
     elif side == "s":
-        if not active_position or token_amount <= 0:
-            print_ticket("SELL", "BLOCKED", price, 0.0, error="No active position", trade_type="MANUAL")
-            return
-        
+        if not active_position or token_amount <= 0: print_ticket("SELL", "BLOCKED", price, 0.0, error="No active position", trade_type="MANUAL"); return
         sell_amount = token_amount
-        logging.info(f"Sending MANUAL SELL for {sell_amount:.8f} @ ~${price:.4f}...")
         res = place_order('sell', sell_amount, price)
         if res and not res.get('error'):
-            active_position = False
-            token_amount = 0.0
-            last_trade_time = time.time()
-            last_trade_type = "MANUAL SELL"
+            active_position = False; token_amount = 0.0; last_trade_time = time.time(); last_trade_type = "MANUAL SELL"
             txid = res.get('result', {}).get('txid', ['N/A'])[0] if isinstance(res.get('result', {}).get('txid'), list) else 'N/A'
-            print_ticket("SELL", "SUCCESS", price, sell_amount, txid=txid, trade_type="MANUAL")
-            save_state()
+            print_ticket("SELL", "SUCCESS", price, sell_amount, txid=txid, trade_type="MANUAL"); save_state()
         else:
             err = res.get('error', ['Unknown'])[0] if isinstance(res.get('error'), list) else 'No response'
             print_ticket("SELL", "REJECTED", price, sell_amount, error=err, trade_type="MANUAL")
 
 # ========================== DASHBOARD ==========================
-def print_dash(price, zm, trend, act, amt, prof, lt, ep, aH, aL, aM,
-               bb_mid, bb_upper, bb_lower, iqr_q1, iqr_q3, iqr_val, spring_val):
-    z = zm.zone(price) if zm else "UNK"
-    pc = PROF_P if prof >= 0 else PROF_N
-    spent = ep * amt if act else 0.00
+def print_dash(price: float, zm: Any, trend: str, act: bool, amt: float, prof: float, lt: str, ep: float, aH: float, aL: float, aM: float, bb_mid: float, bb_upper: float, bb_lower: float, iqr_q1: float, iqr_q3: float, iqr_val: float, spring_val: float) -> None:
+    z = zm.zone(price) if zm else "UNK"; pc = PROF_P if prof >= 0 else PROF_N; spent = ep * amt if act else 0.00
     bb_pos = "N/A"
     if bb_upper and bb_lower and bb_upper != bb_lower:
-        raw_pos = (price - bb_lower) / (bb_upper - bb_lower)
-        bb_pos = f"{raw_pos:.2f}" + (" ↑" if raw_pos > 1 else " ↓" if raw_pos < 0 else "")
+        raw = (price - bb_lower) / (bb_upper - bb_lower); bb_pos = f"{raw:.2f}" + (" ↑" if raw > 1 else " ↓" if raw < 0 else "")
     iqr_pos = "N/A"
     if iqr_q1 is not None and iqr_q3 is not None and iqr_q3 != iqr_q1:
-        raw_iqr = (price - iqr_q1) / (iqr_q3 - iqr_q1)
-        iqr_pos = f"{raw_iqr:.2f}" + (" ↑" if raw_iqr > 1 else " ↓" if raw_iqr < 0 else "")
+        raw = (price - iqr_q1) / (iqr_q3 - iqr_q1); iqr_pos = f"{raw:.2f}" + (" ↑" if raw > 1 else " ↓" if raw < 0 else "")
     spring_label = "LOOSE" if spring_val < 0.3 else "TIGHT" if spring_val > 0.7 else "MID"
+    
     print(f"\n{BORDER}====== {TITLE}ZONES (STATIC){BORDER} ====={RESET}", flush=True)
-    print(f"{SUB}sell:{RESET} {NUM}${zm.sell_zone[0]:.4f}{RESET} - {NUM}${zm.sell_zone[1]:.4f}{RESET}", flush=True)
-    print(f"{SUB}neutral:{RESET} {NUM}${zm.neutral_zone[0]:.4f}{RESET} - {NUM}${zm.neutral_zone[1]:.4f}{RESET}", flush=True)
-    print(f"{SUB}buy:{RESET} {NUM}${zm.buy_zone[0]:.4f}{RESET} - {NUM}${zm.buy_zone[1]:.4f}{RESET}", flush=True)
+    if zm and hasattr(zm, 'sell_zone') and zm.sell_zone:
+        print(f"{SUB}sell:{RESET} {NUM}${zm.sell_zone[0]:.4f}{RESET} - {NUM}${zm.sell_zone[1]:.4f}{RESET}", flush=True)
+        print(f"{SUB}neutral:{RESET} {NUM}${zm.neutral_zone[0]:.4f}{RESET} - {NUM}${zm.neutral_zone[1]:.4f}{RESET}", flush=True)
+        print(f"{SUB}buy:{RESET} {NUM}${zm.buy_zone[0]:.4f}{RESET} - {NUM}${zm.buy_zone[1]:.4f}{RESET}", flush=True)
+    else: print(f"{SUB}Zones: N/A (Initializing...){RESET}", flush=True)
     print(f"{BORDER}====== {TITLE}PLOT OVERLAY{BORDER} ====={RESET}", flush=True)
     print(f"{SUB}Bollinger(50,2σ):{RESET} {NUM}${bb_lower:.4f}{RESET} / {NUM}${bb_mid:.4f}{RESET} / {NUM}${bb_upper:.4f}{RESET} {SUB}| pos:{RESET} {NUM}{bb_pos}{RESET}", flush=True)
     print(f"{SUB}IQR(60min):{RESET} {NUM}${iqr_q1:.4f}{RESET} - {NUM}${iqr_q3:.4f}{RESET} {SUB}| spread:{RESET} {NUM}${iqr_val:.4f}{RESET} {SUB}| pos:{RESET} {NUM}{iqr_pos}{RESET}", flush=True)
@@ -848,26 +774,84 @@ def print_dash(price, zm, trend, act, amt, prof, lt, ep, aH, aL, aM,
     print(f"{pc}profit margin: {prof:+.2f}{RESET}", flush=True)
     print(f"{BORDER}==========================={RESET}\n", flush=True)
 
-# ========================== MAIN LOOP ==========================
-def main():
-    global active_position, entry_price, token_amount, last_trade_time
-    global last_trend, last_trade_type, trading_paused, KRAKEN_PAIR, consecutive_failures
-    global highest_price_since_entry, last_ohlc, last_ohlc_time
-    
-    KRAKEN_PAIR = get_valid_kraken_pair(TRADING_PAIR)
-    logging.info(f"Validated pair: {KRAKEN_PAIR}")
+# ========================== LOGIC-ONLY BACKTESTER ==========================
+def run_strategy_backtest(pair: str, total_candles: int = BACKTEST_CANDLES) -> None:
+    logging.info(f"Backtesting {pair} over {total_candles} candles...")
+    history = fetch_ohlc_history(pair, total_candles, interval=1)
+    if len(history) < MEDIAN_LOOKBACK + 50: logging.error(f"Insufficient history: {len(history)} candles."); return
     zm = ZoneMachine()
-    ml = MLAdvisor() if ML_ENABLED else None
-    pos = {'active': False, 'entry': 0.0, 'time': 0.0, 'amt': 0.0}
+    if not zm.init(history[:MEDIAN_LOOKBACK]): logging.error("Backtest zone init failed."); return
     
+    active = False; entry = amt = highest = entry_ts = last_signal_ts = 0.0
+    realized = 0.0; peak_equity = 0.0; max_drawdown = 0.0; trades = []; equity_curve = []
+    
+    for i in range(MEDIAN_LOOKBACK, len(history)):
+        window = history[i - MEDIAN_LOOKBACK:i + 1]; candle = window[-1]; price = candle['close']; ts = candle['timestamp']
+        if zm.check_redefinition(price, window): zm.init(window)
+        m, s, _ = calc_macd(window)
+        trend = "UP" if m is not None and s is not None and m > s else ("DOWN" if m is not None and s is not None else "UNKNOWN")
+        pos = {'active': active, 'entry': entry, 'time': entry_ts, 'amt': amt}
+        fake_ob = {'bids': [(price * 0.999, 100000.0)], 'asks': [(price * 1.001, 100000.0)]}
+        feat = calculate_all_features(price, zm, trend, fake_ob, pos, window)
+        
+        if active:
+            highest = max(highest, price)
+            slippage_factor = np.random.normal(0, MAX_SLIPPAGE_PCT / 2); fill_price = price * (1 - slippage_factor)
+            pnl = calc_profit(entry, fill_price, amt)
+            forced = None
+            if ts - entry_ts > MAX_HOLD_TIME_SEC: forced = "MAX_HOLD"
+            elif amt * fill_price < MIN_ORDER_USD: forced = "DUST"
+            elif fill_price <= highest * (1 - TRAILING_STOP_PCT): forced = "TRAILING_STOP"
+            elif fill_price >= entry * (1 + TAKE_PROFIT_PCT): forced = "TAKE_PROFIT"
+            if forced:
+                realized += pnl; trades.append({'pnl': pnl, 'reason': forced, 'ts': ts})
+                active = False; amt = 0.0; highest = 0.0; last_signal_ts = ts
+        else:
+            should_buy, should_sell, reason = pre_ml_filters(feat, price, zm, fake_ob, pos, None)
+            if not active:
+                if ts - last_signal_ts < AUTO_COOLDOWN_SEC: should_buy = False
+            if should_sell and active:
+                realized += pnl; trades.append({'pnl': pnl, 'reason': reason, 'ts': ts})
+                active = False; amt = 0.0; highest = 0.0; last_signal_ts = ts
+            elif should_buy and not active:
+                slippage_factor = np.random.normal(0, MAX_SLIPPAGE_PCT / 2); fill_price = price * (1 + slippage_factor)
+                size = round(BASE_INVESTMENT / fill_price, 4 if fill_price < 1.0 else BOND_DECIMALS)
+                if size * fill_price >= MIN_ORDER_USD:
+                    active = True; entry = fill_price; amt = size; highest = fill_price; entry_ts = ts; last_signal_ts = ts
+                    
+        equity = realized + (calc_profit(entry, price, amt) if active else 0.0)
+        equity_curve.append({'ts': ts, 'equity': equity})
+        peak_equity = max(peak_equity, equity)
+        if peak_equity > 0:
+            current_dd = (peak_equity - equity) / peak_equity; max_drawdown = max(max_drawdown, current_dd)
+            if max_drawdown > 0.50: logging.warning("Max drawdown limit (50%) reached. Stopping backtest early."); break
+
+    if active:
+        slippage_factor = np.random.normal(0, MAX_SLIPPAGE_PCT / 2); fill_price = history[-1]['close'] * (1 - slippage_factor)
+        final_pnl = calc_profit(entry, fill_price, amt); realized += final_pnl
+        trades.append({'pnl': final_pnl, 'reason': "END_OF_BACKTEST", 'ts': history[-1]['timestamp']})
+        
+    wins = [t for t in trades if t['pnl'] > 0]
+    logging.info("=" * 50); logging.info(f"BACKTEST RESULT: {pair}")
+    logging.info(f"Candles: {len(history)} | Trades: {len(trades)} | Wins: {len(wins)}")
+    logging.info(f"Win rate: {len(wins) / len(trades) * 100:.1f}%" if trades else "Win rate: N/A")
+    logging.info(f"Net PnL (after fees & slippage): ${realized:+.2f}"); logging.info(f"Max drawdown: {max_drawdown*100:.2f}%")
+    logging.info("NOTE: Logic-only with fake OB and slippage simulation. No ML veto."); logging.info("=" * 50)
+    with open("backtest_results.json", "w") as f:
+        json.dump({'pair': pair, 'candles': len(history), 'trades': trades, 'net_pnl': realized, 'max_drawdown': max_drawdown, 'equity_curve': equity_curve}, f, indent=2)
+
+# ========================== MAIN LOOP ==========================
+def main() -> None:
+    global active_position, entry_price, token_amount, last_trade_time, last_trend, last_trade_type, trading_paused, KRAKEN_PAIR, consecutive_failures, highest_price_since_entry, last_ohlc, last_ohlc_time
+    
+    KRAKEN_PAIR = get_valid_kraken_pair(TRADING_PAIR); logging.info(f"Validated pair: {KRAKEN_PAIR}")
+    zm = ZoneMachine(); ml = MLAdvisor() if ML_ENABLED else None
+    pos = {'active': False, 'entry': 0.0, 'time': 0.0, 'amt': 0.0}
     ohlc = get_ohlc(KRAKEN_PAIR, 1, MEDIAN_LOOKBACK)
     if not zm.init(ohlc):
-        logging.error("Could not initialize zones. Retrying in 30s...")
-        time.sleep(30)
+        logging.error("Could not initialize zones. Retrying in 30s..."); time.sleep(30)
         ohlc = get_ohlc(KRAKEN_PAIR, 1, MEDIAN_LOOKBACK)
-        if not zm.init(ohlc):
-            logging.critical("Zone init failed after retry. Exiting.")
-            sys.exit(1)
+        if not zm.init(ohlc): logging.critical("Zone init failed after retry. Exiting."); sys.exit(1)
     logging.info(f"Zones initialized. Median: ${zm.median:.4f}")
     print(f"\n{BORDER}🚀 Bot Started. Monitoring {KRAKEN_PAIR}...{RESET}")
     print(f"{BORDER}Press Ctrl+C anytime to pause.{RESET}\n", flush=True)
@@ -876,270 +860,124 @@ def main():
     while True:
         try:
             if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                print_ticket("API", "CIRCUIT BREAK", 0, 0,
-                             error=f"API failed {consecutive_failures}x. Trading paused.",
-                             trade_type="SYSTEM")
-                trading_paused = True
-                consecutive_failures = 0
-                continue
-
+                print_ticket("API", "CIRCUIT BREAK", 0, 0, error=f"API failed {consecutive_failures}x. Trading paused.", trade_type="SYSTEM")
+                trading_paused = True; consecutive_failures = 0; continue
             if trading_paused:
-                try:
-                    cmd = input(f"\n{BORDER}⏸ [PAUSED] > {RESET}").strip().lower()
-                except (EOFError, KeyboardInterrupt):
-                    continue
-                if cmd == 'r':
-                    trading_paused = False
-                    print(f"{PROF_P}▶ RESUMED{RESET}", flush=True)
-                    continue
+                try: cmd = input(f"\n{BORDER}⏸ [PAUSED] > {RESET}").strip().lower()
+                except (EOFError, KeyboardInterrupt): continue
+                if cmd == 'r': trading_paused = False; print(f"{PROF_P}▶ RESUMED{RESET}", flush=True)
                 elif cmd == 'q':
-                    if active_position:
-                        logging.warning(f"Position still active! Entry: ${entry_price:.4f} | Amt: {token_amount:.8f}")
-                    print("\n👋 Exiting...", flush=True)
-                    sys.exit(0)
-                elif cmd in ('b', 's'):
-                    execute_manual(cmd)
-                    continue
-                else:
-                    print(f"{SUB}Unknown command. Use: r, q, b, s{RESET}", flush=True)
-                    continue
-
-            if time.time() - last_trade_time < AUTO_COOLDOWN_SEC and last_trade_type != "NONE":
-                time.sleep(PRICE_CHECK_INTERVAL)
+                    if active_position: logging.warning(f"Position still active! Entry: ${entry_price:.4f} | Amt: {token_amount:.8f}")
+                    print("\n👋 Exiting...", flush=True); sys.exit(0)
+                elif cmd in ('b', 's'): execute_manual(cmd)
+                else: print(f"{SUB}Unknown command. Use: r, q, b, s{RESET}", flush=True)
                 continue
-
-            tick_failed = False
+            if time.time() - last_trade_time < AUTO_COOLDOWN_SEC and last_trade_type != "NONE": time.sleep(PRICE_CHECK_INTERVAL); continue
             
-            price = get_ticker()
-            if not price:
-                tick_failed = True
-            
+            tick_failed = False; price = get_ticker()
+            if not price: tick_failed = True
             if not tick_failed:
                 now = time.time()
                 if last_ohlc is None or (now - last_ohlc_time) > 60:
                     ohlc = get_ohlc(KRAKEN_PAIR, 1, MEDIAN_LOOKBACK)
-                    if not ohlc:
-                        tick_failed = True
-                    else:
-                        last_ohlc = ohlc
-                        last_ohlc_time = now
-                ohlc = last_ohlc
-                
+                    if not ohlc: tick_failed = True
+                    else: last_ohlc = ohlc; last_ohlc_time = now; ohlc = last_ohlc
                 ob = get_order_book(KRAKEN_PAIR)
-                if not ob:
-                    tick_failed = True
-
+                if not ob: tick_failed = True
+                
             if tick_failed:
                 consecutive_failures += 1
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                    print_ticket("API", "CIRCUIT BREAK", 0, 0,
-                                 error=f"API failed {consecutive_failures}x. Trading paused.",
-                                 trade_type="SYSTEM")
-                    trading_paused = True
-                    consecutive_failures = 0
-                time.sleep(5)
-                continue
-            
-            consecutive_failures = 0
-            price = round(price, 4)
-
+                    print_ticket("API", "CIRCUIT BREAK", 0, 0, error=f"API failed {consecutive_failures}x. Trading paused.", trade_type="SYSTEM")
+                    trading_paused = True; consecutive_failures = 0
+                time.sleep(5); continue
+                
+            consecutive_failures = 0; price = round(price, 4)
             macd_line, signal_line, _ = calc_macd(ohlc)
-            if macd_line is not None and signal_line is not None:
-                last_trend = "UP" if macd_line > signal_line else "DOWN"
-            else:
-                last_trend = "UNKNOWN"
-
-            # Compute indicators ONCE per tick
-            bb_mid, bb_upper, bb_lower = calc_bollinger(ohlc)
-            iqr_q1, iqr_q3, iqr_val = calc_iqr(ohlc, IQR_ML_LOOKBACK)
-
-            if ohlc and len(ohlc) >= 10:
-                if zm.check_redefinition(price, ohlc):
-                    logging.info("🔄 Zones redefined (avg shift or >3min outside).")
-                    zm.init(ohlc)
-
-            if ohlc:
-                aH = float(np.max([x['high'] for x in ohlc]))
-                aL = float(np.min([x['low'] for x in ohlc]))
-                aM = zm.median
-            else:
-                aH = aL = aM = 0.0
-
-            # Update position state for feature calculation
-            if active_position:
-                pos['active'] = True
-                pos['entry'] = entry_price
-                pos['time'] = last_trade_time
-                pos['amt'] = token_amount
-            else:
-                pos['active'] = False
-                pos['amt'] = 0.0
-
-            # --- FEATURE CALCULATION ---
+            last_trend = "UP" if macd_line is not None and signal_line is not None and macd_line > signal_line else ("DOWN" if macd_line is not None and signal_line is not None else "UNKNOWN")
+            bb_mid, bb_upper, bb_lower = calc_bollinger(ohlc); iqr_q1, iqr_q3, iqr_val = calc_iqr(ohlc, IQR_ML_LOOKBACK)
+            
+            if ohlc and len(ohlc) >= 10 and zm.check_redefinition(price, ohlc): logging.info("🔄 Zones redefined (median shift or >3min outside)."); zm.init(ohlc)
+            aH = float(np.max([x['high'] for x in ohlc])) if ohlc else 0.0; aL = float(np.min([x['low'] for x in ohlc])) if ohlc else 0.0; aM = zm.median
+            
+            if active_position: pos.update({'active': True, 'entry': entry_price, 'time': last_trade_time, 'amt': token_amount})
+            else: pos.update({'active': False, 'amt': 0.0})
             features = calculate_all_features(price, zm, last_trend, ob, pos, ohlc)
-            if ml:
-                ml.hist.append(features)
-
-            # --- HARD EXITS (Absolute overrides, no ML veto) ---
+            if ml: ml.hist.append(features)
+            
             if active_position:
-                if price > highest_price_since_entry:
-                    highest_price_since_entry = price
-                
-                now = time.time()
-                
-                # 1. Max hold time
-                if (now - last_trade_time) > MAX_HOLD_TIME_SEC:
-                    logging.warning(f"MAX HOLD TIME REACHED ({MAX_HOLD_TIME_SEC}s). Forcing sell.")
+                highest_price_since_entry = max(highest_price_since_entry, price); now = time.time(); forced_reason = None
+                if now - last_trade_time > MAX_HOLD_TIME_SEC: forced_reason = "MAX HOLD TIME"
+                elif token_amount * price < MIN_ORDER_USD: forced_reason = "DUST CLEAR"
+                elif price <= highest_price_since_entry * (1 - TRAILING_STOP_PCT): forced_reason = "TRAILING STOP"
+                elif price >= entry_price * (1 + TAKE_PROFIT_PCT): forced_reason = "TAKE PROFIT CEILING"
+                if forced_reason:
+                    logging.warning(f"{forced_reason} HIT at ${price:.4f}")
                     res = place_order('sell', token_amount, price, ot='market')
                     if res and not res.get('error'):
-                        exit_p = price
                         txid = res.get('result', {}).get('txid', ['N/A'])[0] if isinstance(res.get('result', {}).get('txid'), list) else 'N/A'
-                        print_ticket("SELL", "MAX HOLD TIME", exit_p, token_amount, txid=txid, trade_type="AUTO")
-                        if ml and features is not None:
-                            ml.record(features, entry_price, exit_p, token_amount)
-                        active_position = False
-                        token_amount = 0.0
-                        highest_price_since_entry = 0.0
-                        last_trade_time = now
-                        last_trade_type = "AUTO SELL"
-                        save_state()
-                    time.sleep(PRICE_CHECK_INTERVAL)
-                    continue
-
-                # 2. Dust position
-                if token_amount * price < MIN_ORDER_USD:
-                    logging.warning(f"Dust position detected (${token_amount * price:.2f} < ${MIN_ORDER_USD}). Forcing market sell.")
-                    res = place_order('sell', token_amount, price, ot='market')
-                    if res and not res.get('error'):
-                        exit_p = price
-                        txid = res.get('result', {}).get('txid', ['N/A'])[0] if isinstance(res.get('result', {}).get('txid'), list) else 'N/A'
-                        print_ticket("SELL", "DUST CLEAR", exit_p, token_amount, txid=txid, trade_type="AUTO")
-                        if ml and features is not None:
-                            ml.record(features, entry_price, exit_p, token_amount)
-                        active_position = False
-                        token_amount = 0.0
-                        highest_price_since_entry = 0.0
-                        last_trade_time = now
-                        last_trade_type = "AUTO SELL"
-                        save_state()
-                    time.sleep(PRICE_CHECK_INTERVAL)
-                    continue
-
-                # 3. Trailing stop
-                trailing_stop_price = highest_price_since_entry * (1 - TRAILING_STOP_PCT)
-                if price <= trailing_stop_price:
-                    logging.warning(f"TRAILING STOP HIT: ${price:.4f} <= ${trailing_stop_price:.4f} (High: ${highest_price_since_entry:.4f})")
-                    res = place_order('sell', token_amount, price, ot='market')
-                    if res and not res.get('error'):
-                        exit_p = price
-                        txid = res.get('result', {}).get('txid', ['N/A'])[0] if isinstance(res.get('result', {}).get('txid'), list) else 'N/A'
-                        print_ticket("SELL", "TRAILING STOP", exit_p, token_amount, txid=txid, trade_type="AUTO")
-                        if ml and features is not None:
-                            ml.record(features, entry_price, exit_p, token_amount)
-                        active_position = False
-                        token_amount = 0.0
-                        highest_price_since_entry = 0.0
-                        last_trade_time = now
-                        last_trade_type = "AUTO SELL"
-                        save_state()
-                    time.sleep(PRICE_CHECK_INTERVAL)
-                    continue
-
-                # 4. Take Profit Ceiling (Hard Exit)
-                if price >= entry_price * (1 + TAKE_PROFIT_PCT):
-                    logging.warning(f"TAKE PROFIT CEILING HIT: ${price:.4f} >= ${entry_price * (1 + TAKE_PROFIT_PCT):.4f}")
-                    res = place_order('sell', token_amount, price, ot='market')
-                    if res and not res.get('error'):
-                        exit_p = price
-                        txid = res.get('result', {}).get('txid', ['N/A'])[0] if isinstance(res.get('result', {}).get('txid'), list) else 'N/A'
-                        print_ticket("SELL", "TAKE PROFIT CEILING", exit_p, token_amount, txid=txid, trade_type="AUTO")
-                        if ml and features is not None:
-                            ml.record(features, entry_price, exit_p, token_amount)
-                        active_position = False
-                        token_amount = 0.0
-                        highest_price_since_entry = 0.0
-                        last_trade_time = now
-                        last_trade_type = "AUTO SELL"
-                        save_state()
-                    time.sleep(PRICE_CHECK_INTERVAL)
-                    continue
-
-            # --- LOGIC-FIRST, ML-SECOND DECISION ---
+                        print_ticket("SELL", forced_reason, price, token_amount, txid=txid, trade_type="AUTO")
+                        if ml: ml.record(features, entry_price, price, token_amount)
+                        active_position = False; token_amount = 0.0; highest_price_since_entry = 0.0; last_trade_time = now; last_trade_type = "AUTO SELL"; save_state()
+                    time.sleep(PRICE_CHECK_INTERVAL); continue
+                    
             should_buy, should_sell, reason = trade_decision(features, price, zm, ob, pos, ml)
-
             if should_sell and active_position:
                 logging.info(f"Executing SELL ({reason})")
                 res = place_order('sell', token_amount, price, ot='market')
                 if res and not res.get('error'):
-                    exit_p = price
                     txid = res.get('result', {}).get('txid', ['N/A'])[0] if isinstance(res.get('result', {}).get('txid'), list) else 'N/A'
-                    print_ticket("SELL", "SUCCESS", exit_p, token_amount, txid=txid, trade_type="AUTO")
-                    if ml and features is not None:
-                        ml.record(features, entry_price, exit_p, token_amount)
-                    active_position = False
-                    token_amount = 0.0
-                    highest_price_since_entry = 0.0
-                    last_trade_time = now
-                    last_trade_type = "AUTO SELL"
-                    save_state()
+                    print_ticket("SELL", "SUCCESS", price, token_amount, txid=txid, trade_type="AUTO")
+                    if ml: ml.record(features, entry_price, price, token_amount)
+                    active_position = False; token_amount = 0.0; highest_price_since_entry = 0.0; last_trade_time = time.time(); last_trade_type = "AUTO SELL"; save_state()
                 else:
                     err = res.get('error', ['Unknown'])[0] if isinstance(res.get('error'), list) else 'No response'
                     print_ticket("SELL", "FAILED", price, token_amount, error=err, trade_type="AUTO")
-                time.sleep(PRICE_CHECK_INTERVAL)
-                continue
-
+                time.sleep(PRICE_CHECK_INTERVAL); continue
+                
             if should_buy and not active_position and not trading_paused:
                 bet = get_kelly_bet(ml)
-                if bet == 0:
-                    time.sleep(PRICE_CHECK_INTERVAL)
-                    continue
+                if bet == 0: time.sleep(PRICE_CHECK_INTERVAL); continue
                 amt, avg_price, slippage = dyn_size(price, 'buy', ob, max_inv=bet)
                 if amt > 0:
                     res = place_order('buy', amt, avg_price)
                     if res and not res.get('error'):
-                        active_position = True
-                        entry_price = avg_price
-                        token_amount = amt
-                        highest_price_since_entry = avg_price
-                        last_trade_time = time.time()
-                        last_trade_type = "AUTO BUY"
+                        active_position = True; entry_price = avg_price; token_amount = amt; highest_price_since_entry = avg_price; last_trade_time = time.time(); last_trade_type = "AUTO BUY"
                         txid = res.get('result', {}).get('txid', ['N/A'])[0] if isinstance(res.get('result', {}).get('txid'), list) else 'N/A'
                         print_ticket("BUY", "SUCCESS", avg_price, amt, txid=txid, trade_type="AUTO")
-                        logging.info(f"ML prob: {ml.pred_entry(features) if ml and ml.trained else 'N/A'} | Kelly bet: ${bet:.2f} | Slippage: {slippage:.4%} | Spring: {features['spring']:.2f}")
-                        save_state()
+                        logging.info(f"Kelly bet: ${bet:.2f} | Slippage: {slippage:.4%} | Spring: {features['spring']:.2f}"); save_state()
                     else:
                         err = res.get('error', ['Unknown'])[0] if isinstance(res.get('error'), list) else 'No response'
                         print_ticket("BUY", "REJECTED", price, 0.0, error=err, trade_type="AUTO")
-
-            # Dashboard uses pre-computed indicators
-            print_dash(price, zm, last_trend, active_position, token_amount,
-                       calc_profit(entry_price, price, token_amount) if active_position else 0.0,
-                       last_trade_type, entry_price, aH, aL, aM,
-                       bb_mid or 0, bb_upper or 0, bb_lower or 0,
-                       iqr_q1 or 0, iqr_q3 or 0, iqr_val or 0, features['spring'])
+                        
+            print_dash(price, zm, last_trend, active_position, token_amount, calc_profit(entry_price, price, token_amount) if active_position else 0.0, last_trade_type, entry_price, aH, aL, aM, bb_mid or 0, bb_upper or 0, bb_lower or 0, iqr_q1 or 0, iqr_q3 or 0, iqr_val or 0, features['spring'])
             time.sleep(PRICE_CHECK_INTERVAL)
-
         except KeyboardInterrupt:
             trading_paused = True
-            print(f"\n{BORDER}⏸ PAUSED{RESET} | Commands: "
-                  f"{SUB}r{RESET}=resume {SUB}q{RESET}=quit "
-                  f"{SUB}b{RESET}=buy {SUB}s{RESET}=sell{RESET}", flush=True)
-        except Exception as e:
-            logging.error(f"Loop error: {e}", exc_info=True)
-            time.sleep(10)
+            print(f"\n{BORDER}⏸ PAUSED{RESET} | Commands: {SUB}r{RESET}=resume {SUB}q{RESET}=quit {SUB}b{RESET}=buy {SUB}s{RESET}=sell{RESET}", flush=True)
+        except Exception as e: logging.error(f"Loop error: {e}", exc_info=True); time.sleep(10)
 
 # ========================== SIGTERM HANDLER ==========================
-def signal_term_handler(signum, frame):
+def signal_term_handler(signum, frame) -> None:
     if active_position:
-        logging.critical(f"SIGTERM received with ACTIVE POSITION! "
-                         f"Entry: ${entry_price:.4f}, Amt: {token_amount:.8f}")
-        with open("emergency_exit.log", "a") as f:
-            f.write(f"{time.time()}: SIGTERM with position. Entry={entry_price}, Amt={token_amount}\n")
+        logging.critical(f"SIGTERM with ACTIVE POSITION! Entry: ${entry_price:.4f}, Amt: {token_amount:.8f}")
+        with open("emergency_exit.log", "a") as f: f.write(f"{time.time()}: SIGTERM with position. Entry={entry_price}, Amt={token_amount}\n")
     sys.exit(0)
 
 # ========================== ENTRY POINT ==========================
 if __name__ == "__main__":
     import signal
-    signal.signal(signal.SIGTERM, signal_term_handler)
-    load_state()
-    main()
+    parser = argparse.ArgumentParser(description="Depth-Aware Trading Bot")
+    parser.add_argument('--backtest', action='store_true', help="Run logic-only historical backtest")
+    parser.add_argument('--candles', type=int, default=BACKTEST_CANDLES, help="Candles to backtest")
+    parser.add_argument('--verbose', action='store_true', help="Enable DEBUG logging")
+    args = parser.parse_args()
+    if args.verbose: logging.getLogger().setLevel(logging.DEBUG)
+
+    if args.backtest:
+        KRAKEN_PAIR = get_valid_kraken_pair(TRADING_PAIR)
+        run_strategy_backtest(KRAKEN_PAIR, args.candles)
+    else:
+        signal.signal(signal.SIGTERM, signal_term_handler)
+        load_state()
+        main()
