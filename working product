@@ -9,6 +9,8 @@ Architecture:
 - Kelly Sizing: Dynamic bet sizing capped at +5%
 - Backtest: `python bot.py --backtest --candles 10080` (includes fake OB & slippage)
 - Paused State: Ctrl+C pauses; b/s/r/q commands bypass all filters
+- defaults to logic in unrooted devices
+
 
 theres probably some human explination due here that i havent been in a mind to give
 i stated this idea moking ai in my own way and cant be conciously satisfied 
